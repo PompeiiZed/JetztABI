@@ -94,7 +94,14 @@ select.wide-inp{cursor:pointer}
 </head>
 <body>
 <div id="app"></div>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script>
+var SUPABASE_URL = 'https://dawhzjvcrjfchjunhpko.supabase.co/rest/v1/';
+var SUPABASE_ANON_KEY = 'sb_publishable_qt2JYzlYw7F1wLNs9hmrzQ_H_ghYXyU';
+var sb = (SUPABASE_URL.indexOf('PASTE_') === -1)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
 // ==================== STATE ====================
 var S = {
   page:'landing', dark:false, user:null,
@@ -685,13 +692,43 @@ function buildAuth(){
   });
   box.appendChild(tabs);
   function field(lbl,type,ph){var w=document.createElement('div');w.style.marginBottom='12px';var l=document.createElement('label');l.style.cssText='font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:5px';l.textContent=lbl;var i=document.createElement('input');i.type=type;i.placeholder=ph;i.className='wide-inp';w.appendChild(l);w.appendChild(i);return w;}
-  if(S.authMode==='register') box.appendChild(field('Name','text','Dein vollständiger Name'));
-  box.appendChild(field('E-Mail','email','deine@email.de'));
-  box.appendChild(field('Passwort','password','••••••••'));
+  var nameField, emailField, pwField;
+  if(S.authMode==='register'){nameField=field('Name','text','Dein vollständiger Name');box.appendChild(nameField);}
+  emailField=field('E-Mail','email','deine@email.de');box.appendChild(emailField);
+  pwField=field('Passwort','password','••••••••');box.appendChild(pwField);
+  var errBox=document.createElement('div');errBox.style.cssText='display:none;background:#fee2e2;color:#dc2626;font-size:13px;padding:10px 12px;border-radius:8px;margin-bottom:12px';box.appendChild(errBox);
+  function showErr(msg){errBox.textContent=msg;errBox.style.display='block';}
   var mb=document.createElement('button');mb.className='btn-blue';mb.style.cssText='width:100%;margin-top:10px;margin-bottom:12px';mb.textContent=S.authMode==='login'?'🔐 Anmelden':'🚀 Konto erstellen';
-  mb.onclick=function(){S.user={name:S.authMode==='login'?'Max Mustermann':'Neuer Schüler',email:'student@schule.de',bundesland:'',premium:false};go('onboarding');};
+  mb.onclick=async function(){
+    if(!sb){showErr('Supabase ist noch nicht konfiguriert (siehe SUPABASE_URL / SUPABASE_ANON_KEY im Code).');return;}
+    var email=emailField.querySelector('input').value.trim();
+    var pw=pwField.querySelector('input').value;
+    var name=nameField?nameField.querySelector('input').value.trim():'';
+    if(!email||!pw){showErr('Bitte E-Mail und Passwort ausfüllen.');return;}
+    mb.disabled=true;mb.textContent='Bitte warten...';
+    var result;
+    if(S.authMode==='register'){
+      result=await sb.auth.signUp({email:email,password:pw,options:{data:{full_name:name}}});
+    } else {
+      result=await sb.auth.signInWithPassword({email:email,password:pw});
+    }
+    mb.disabled=false;mb.textContent=S.authMode==='login'?'🔐 Anmelden':'🚀 Konto erstellen';
+    if(result.error){showErr(result.error.message);return;}
+    if(S.authMode==='register' && result.data.user && !result.data.session){
+      showErr('Konto erstellt! Bitte bestätige deine E-Mail über den Link, den wir dir geschickt haben, und logge dich danach ein.');
+      return;
+    }
+    var u=result.data.user;
+    S.user={id:u.id,name:(u.user_metadata&&u.user_metadata.full_name)||name||u.email.split('@')[0],email:u.email,bundesland:'',premium:false};
+    go('onboarding');
+  };
   box.appendChild(mb);
-  var gb=document.createElement('button');gb.className='btn-gray';gb.style.cssText='width:100%;margin-bottom:16px';gb.textContent='🌐 Mit Google fortfahren';gb.onclick=function(){S.user={name:'Anna Müller',email:'anna@gmail.com',bundesland:'',premium:false};go('onboarding');};
+  var gb=document.createElement('button');gb.className='btn-gray';gb.style.cssText='width:100%;margin-bottom:16px';gb.textContent='🌐 Mit Google fortfahren';
+  gb.onclick=async function(){
+    if(!sb){showErr('Supabase ist noch nicht konfiguriert.');return;}
+    var result=await sb.auth.signInWithOAuth({provider:'google'});
+    if(result.error)showErr(result.error.message+' (Google-Login muss zusätzlich im Supabase-Dashboard unter Authentication > Providers aktiviert werden.)');
+  };
   box.appendChild(gb);
   var sw=document.createElement('div');sw.style.cssText='text-align:center;font-size:13px;color:#64748b';var swL=document.createElement('span');swL.style.cssText='color:#1d4ed8;font-weight:700;cursor:pointer';swL.textContent=S.authMode==='login'?'Registrieren':'Anmelden';swL.onclick=function(){S.authMode=S.authMode==='login'?'register':'login';render();};sw.appendChild(document.createTextNode(S.authMode==='login'?'Noch kein Konto? ':'Schon registriert? '));sw.appendChild(swL);box.appendChild(sw);
   box.appendChild(bk);wrap.appendChild(box);return wrap;
@@ -1240,6 +1277,7 @@ function buildProfileModal(){
     var lbl=document.createElement('label');lbl.style.cssText='font-size:13px;font-weight:600;display:block;margin-bottom:6px';lbl.textContent='Bundesland';box.appendChild(lbl);
     var sel=document.createElement('select');sel.className='wide-inp';BL_NAMES.forEach(function(bl){var opt=document.createElement('option');opt.value=bl;opt.textContent=bl;if(S.user&&S.user.bundesland===bl)opt.selected=true;sel.appendChild(opt);});box.appendChild(sel);
     var sv=document.createElement('button');sv.className='btn-blue';sv.style.cssText='width:100%;margin-top:12px';sv.textContent='Speichern';sv.onclick=function(){if(S.user)S.user.bundesland=sel.value;S.profileModal=false;render();};box.appendChild(sv);
+    var lo=document.createElement('button');lo.className='btn-gray';lo.style.cssText='width:100%;margin-top:8px';lo.textContent='🚪 Abmelden';lo.onclick=async function(){if(sb)await sb.auth.signOut();S.user=null;S.profileModal=false;go('landing');};box.appendChild(lo);
   } else {
     var sg=document.createElement('div');sg.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px';
     [['Streak','12 Tage'],['XP','3.480'],['Themen','24'],['Karten',''+FLASHCARDS.length]].forEach(function(x){sg.innerHTML+='<div class="card" style="padding:13px;text-align:center"><div style="font-weight:800;font-size:18px">'+x[1]+'</div><div style="font-size:11px;color:#94a3b8">'+x[0]+'</div></div>';});
@@ -1259,7 +1297,17 @@ function buildPremModal(){
   overlay.appendChild(box);overlay.onclick=function(e){if(e.target===overlay){S.premModal=false;render();}};return overlay;
 }
 
-render();
+(async function initSession(){
+  if(sb){
+    var s=await sb.auth.getSession();
+    if(s.data.session){
+      var u=s.data.session.user;
+      S.user={id:u.id,name:(u.user_metadata&&u.user_metadata.full_name)||u.email.split('@')[0],email:u.email,bundesland:'',premium:false};
+      S.page='main';
+    }
+  }
+  render();
+})();
 </script>
 </body>
 </html>
