@@ -96,10 +96,6 @@ select.wide-inp{cursor:pointer}
 <div id="app"></div>
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script>
-// ==================== SUPABASE CONFIG ====================
-// 1. Go to supabase.com, create a free account + new project.
-// 2. In your project: Settings -> API -> copy "Project URL" and "anon public" key.
-// 3. Paste them below, replacing the two placeholder strings.
 var SUPABASE_URL = 'https://dawhzjvcrjfchjunhpko.supabase.co/rest/v1/';
 var SUPABASE_ANON_KEY = 'sb_publishable_qt2JYzlYw7F1wLNs9hmrzQ_H_ghYXyU';
 var sb = (SUPABASE_URL.indexOf('PASTE_') === -1)
