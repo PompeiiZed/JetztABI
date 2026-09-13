@@ -95,6 +95,27 @@ body.dark .tab-btn.inactive{background:#334155;color:#94a3b8}
 .calc-subject-row{display:flex;align-items:center;gap:6px;padding:10px 12px;border-radius:12px;margin-bottom:8px;border:1.5px solid #e2e8f0;background:#fff}
 body.dark .calc-subject-row{background:#1e293b;border-color:#334155}
 select.wide-inp{cursor:pointer}
+
+/* ============ RESPONSIVE APP SHELL (phone = portrait, tablet/laptop/desktop = widescreen) ============ */
+.app-shell{min-height:100vh;max-width:430px;margin:0 auto;position:relative;display:flex;flex-direction:column}
+.app-topbar{position:sticky;top:0;z-index:30;padding:14px 18px 8px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0}
+body.dark .app-topbar{border-bottom-color:#1e293b}
+.app-xpbar{padding:5px 18px 7px}
+.app-content{flex:1;overflow-y:auto;padding-bottom:76px}
+.app-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;border-top:1px solid #e2e8f0;padding:5px 2px 10px;display:flex;justify-content:space-around;z-index:30}
+body.dark .app-nav{border-top-color:#1e293b}
+@media (min-width:768px){
+  .app-shell{max-width:1180px;display:grid;grid-template-columns:230px 1fr;grid-template-rows:auto auto 1fr;grid-template-areas:"nav topbar" "nav xp" "nav content";min-height:100vh}
+  .app-topbar{grid-area:topbar;padding:22px 32px 10px}
+  .app-xpbar{grid-area:xp;padding:6px 32px 16px}
+  .app-content{grid-area:content;overflow-y:visible;padding:4px 32px 40px}
+  .app-content>*{max-width:820px;margin:0 auto}
+  .app-nav{grid-area:nav;position:sticky;top:0;left:0;transform:none;width:auto;max-width:none;height:100vh;border-top:none;border-right:1px solid #e2e8f0;flex-direction:column;justify-content:flex-start;align-items:stretch;padding:26px 14px;gap:4px}
+  body.dark .app-nav{border-right-color:#1e293b;border-top-color:transparent}
+  .app-nav .nav-item{flex-direction:row;justify-content:flex-start;gap:12px;width:100%;padding:10px 12px !important;border-radius:10px;min-width:0}
+  .app-nav .nav-icon{width:32px;height:32px;font-size:16px;flex-shrink:0}
+  .app-nav .nav-item span{margin-top:0 !important;font-size:13px}
+}
 </style>
 </head>
 <body>
@@ -106,7 +127,15 @@ var SUPABASE_ANON_KEY = 'sb_publishable_qt2JYzlYw7F1wLNs9hmrzQ_H_ghYXyU';
 var sb = null;
 try{
   if(SUPABASE_URL.indexOf('PASTE_') === -1 && window.supabase && typeof window.supabase.createClient==='function'){
-    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth:{
+        persistSession:true,
+        autoRefreshToken:true,
+        detectSessionInUrl:true,
+        storageKey:'jetztabitur-auth-v1',
+        storage:window.localStorage
+      }
+    });
   }
 }catch(e){
   console.warn('Supabase konnte nicht initialisiert werden (evtl. offline oder CDN blockiert):', e);
@@ -116,7 +145,7 @@ try{
 // ==================== STATE ====================
 var S = {
   page:'landing', dark:false, user:null,
-  ob:{step:0, bl:'', school:'', year:'2025', lk:[], subs:[]},
+  ob:{step:0, bl:'', school:'', year:'2027', lk:[], subs:[]},
   tab:'home',
   calcSubjects:[], calcExams:[], calcTab:'block1',
   calcSeminarEnabled:false,
@@ -128,9 +157,15 @@ var S = {
   qSubFilter:'all', qAfbFilter:'all',
   aiMsgs:[], aiInput:'',
   premModal:false, profileModal:false, profileTab:'stats', gradeTableModal:false,
-  authMode:'login', search:'',
-  streak:12, xp:3480, level:14, targetGrade:1.5,
+  authMode:'login', search:'', forgotPwOpen:false,
+  streak:0, xp:0, targetGrade:1.5,
+  activityLog:{}, topicsLearned:[], flashcardsReviewed:[], cardsToday:[], cardsTodayDate:'', studySeconds:0,
+  qDailyCount:0, qDailyDate:'', premSelectedPlan:'annual',
+  uebenSection:'afb', klausurenType:'abiturka', klausurenSubj:null, klausurenTopic:null,
 };
+function calcLevel(){ return Math.floor(S.xp/1000)+1; }
+function isDemo(){ return !!(S.user && S.user.demo); }
+function promptSignup(mode){ S.user=null; S.page='auth'; S.authMode=mode||'register'; render(); }
 
 // ==================== CALC STATE PERSISTENCE ====================
 var CALC_STORAGE_KEY='abiRechnerState_v1';
@@ -156,6 +191,138 @@ function loadCalcState(){
   }catch(e){}
 }
 loadCalcState();
+
+// ==================== PROGRESS / GAMIFICATION PERSISTENCE ====================
+var PROGRESS_STORAGE_KEY='abiProgressState_v1';
+function todayStr(d){ d=d||new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function parseDateStr(s){ var p=s.split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
+function saveProgressState(){
+  try{
+    localStorage.setItem(PROGRESS_STORAGE_KEY, JSON.stringify({
+      activityLog:S.activityLog, xp:S.xp, topicsLearned:S.topicsLearned,
+      flashcardsReviewed:S.flashcardsReviewed, cardsToday:S.cardsToday,
+      cardsTodayDate:S.cardsTodayDate, studySeconds:S.studySeconds,
+      qDailyCount:S.qDailyCount, qDailyDate:S.qDailyDate
+    }));
+  }catch(e){}
+}
+function loadProgressState(){
+  try{
+    var raw=localStorage.getItem(PROGRESS_STORAGE_KEY);
+    if(raw){
+      var d=JSON.parse(raw);
+      S.activityLog=d.activityLog||{};
+      S.xp=typeof d.xp==='number'?d.xp:0;
+      S.topicsLearned=d.topicsLearned||[];
+      S.flashcardsReviewed=d.flashcardsReviewed||[];
+      S.cardsToday=d.cardsToday||[];
+      S.cardsTodayDate=d.cardsTodayDate||'';
+      S.studySeconds=d.studySeconds||0;
+      S.qDailyCount=d.qDailyCount||0;
+      S.qDailyDate=d.qDailyDate||'';
+    }
+  }catch(e){}
+  if(S.cardsTodayDate!==todayStr()){ S.cardsToday=[]; S.cardsTodayDate=todayStr(); }
+  if(S.qDailyDate!==todayStr()){ S.qDailyCount=0; S.qDailyDate=todayStr(); }
+  S.streak=computeStreak();
+}
+function qDailyRollover(){
+  var t=todayStr();
+  if(S.qDailyDate!==t){ S.qDailyDate=t; S.qDailyCount=0; }
+}
+function computeStreak(){
+  var days=Object.keys(S.activityLog).filter(function(k){return S.activityLog[k]&&S.activityLog[k].actions>0;}).sort();
+  if(!days.length) return 0;
+  var todayD=new Date(); todayD.setHours(0,0,0,0);
+  var last=parseDateStr(days[days.length-1]);
+  var diff=Math.round((todayD-last)/86400000);
+  if(diff>1) return 0; // streak broken: missed at least one full day
+  var streak=1, cursor=last;
+  for(var i=days.length-2;i>=0;i--){
+    var d2=parseDateStr(days[i]);
+    var dd=Math.round((cursor-d2)/86400000);
+    if(dd===1){ streak++; cursor=d2; } else if(dd!==0){ break; }
+  }
+  return streak;
+}
+// Marks today as "active" and optionally awards XP. This is what makes streak,
+// XP, and progress stats real instead of static placeholders.
+function recordActivity(xpGain){
+  var t=todayStr();
+  if(!S.activityLog[t]) S.activityLog[t]={xp:0,actions:0};
+  S.activityLog[t].actions++;
+  if(xpGain){ S.activityLog[t].xp+=xpGain; S.xp+=xpGain; }
+  S.streak=computeStreak();
+  saveProgressState();
+}
+loadProgressState();
+setInterval(function(){
+  if(document.visibilityState==='visible'){ S.studySeconds+=30; saveProgressState(); }
+},30000);
+
+// ==================== ACCOUNT PROFILE PERSISTENCE (Supabase) ====================
+// Requires a "profiles" table in Supabase (see setup note at bottom of file / chat).
+var profileSyncTimer=null;
+var profileLoaded=false;
+
+function applyProfileRow(row){
+  if(!row||!S.user)return;
+  S.user.bundesland   = row.bundesland || S.user.bundesland || '';
+  S.user.school       = row.school || S.user.school || '';
+  S.user.abiYear      = row.abi_year || S.user.abiYear || '2027';
+  S.user.lk           = row.lk_subjects || S.user.lk || [];
+  S.user.subs         = row.other_subjects || S.user.subs || [];
+  if(typeof row.premium==='boolean') S.user.premium = row.premium;
+  // Only overwrite locally-cached grades if the server actually has saved data
+  if(row.calc_state && typeof row.calc_state==='object' && row.calc_state.calcSubjects && row.calc_state.calcSubjects.length){
+    S.calcSubjects       = row.calc_state.calcSubjects;
+    S.calcExams          = row.calc_state.calcExams || S.calcExams;
+    S.calcSeminarEnabled = !!row.calc_state.calcSeminarEnabled;
+    S.calcSeminar        = row.calc_state.calcSeminar || S.calcSeminar;
+    S.calcNextId         = row.calc_state.calcNextId || S.calcNextId;
+    saveCalcState();
+  }
+}
+
+// Returns true if the user already has a saved profile with a bundesland (i.e. finished onboarding before)
+async function fetchProfile(userId){
+  if(!sb) return null;
+  try{
+    var res=await sb.from('profiles').select('*').eq('id',userId).maybeSingle();
+    if(res.error){ console.warn('Profil konnte nicht geladen werden:',res.error.message); return null; }
+    return res.data||null;
+  }catch(e){ console.warn('Profil-Abruf fehlgeschlagen (evtl. offline):',e); return null; }
+}
+
+async function saveProfileNow(){
+  if(!sb||!S.user||!S.user.id) return;
+  try{
+    await sb.from('profiles').upsert({
+      id:S.user.id,
+      full_name:S.user.name||null,
+      bundesland:S.user.bundesland||null,
+      school:S.user.school||null,
+      abi_year:S.user.abiYear||null,
+      lk_subjects:S.user.lk||[],
+      other_subjects:S.user.subs||[],
+      premium:!!S.user.premium,
+      calc_state:{
+        calcSubjects:S.calcSubjects, calcExams:S.calcExams,
+        calcSeminarEnabled:S.calcSeminarEnabled, calcSeminar:S.calcSeminar,
+        calcNextId:S.calcNextId
+      },
+      updated_at:new Date().toISOString()
+    },{onConflict:'id'});
+  }catch(e){ console.warn('Profil konnte nicht gespeichert werden (evtl. offline):',e); }
+}
+
+// Debounced sync so we don't hit the network on every keystroke/render
+function queueProfileSync(){
+  if(!sb||!S.user||!S.user.id) return;
+  if(profileSyncTimer) clearTimeout(profileSyncTimer);
+  profileSyncTimer=setTimeout(saveProfileNow,1200);
+}
+
 function initCalcDefaults() {
   if (S.calcSubjects.length === 0) {
     S.calcSubjects = [
@@ -601,7 +768,7 @@ var UNI_SECTIONS = [
 // ==================== DOM HELPERS ====================
 function mk(html) { var d=document.createElement('div'); d.innerHTML=html; return d.firstElementChild||d; }
 function go(page,extra){ S.page=page; if(extra){for(var k in extra)S[k]=extra[k];} render(); }
-function setTab(t){ S.tab=t; render(); }
+function setTab(t){ if(isDemo()&&t==='quiz'){ promptSignup(); return; } S.tab=t; render(); }
 function captureFocus(){
   var el=document.activeElement;
   if(el&&el.id&&(el.tagName==='INPUT'||el.tagName==='TEXTAREA')){
@@ -629,6 +796,7 @@ function render(){
   app.appendChild(buildPage());
   restoreFocus(focus);
   saveCalcState();
+  queueProfileSync();
 }
 function buildPage(){
   if(S.page==='landing') return buildLanding();
@@ -636,7 +804,6 @@ function buildPage(){
   if(S.page==='onboarding') return buildOnboarding();
   return buildMain();
 }
-function getRules(){ return BL_RULES[(S.user&&S.user.bundesland)||'Nordrhein-Westfalen']||BL_RULES['Nordrhein-Westfalen']; }
 function isBayern(){ return (S.user&&S.user.bundesland)==='Bayern'; }
 
 // ==================== CALCULATOR LOGIC ====================
@@ -738,7 +905,7 @@ function buildLanding(){
   hero.innerHTML='<div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.15);padding:8px 20px;border-radius:100px;font-size:13px;font-weight:600;margin-bottom:28px">🚀 Die #1 Plattform für Abitur-Vorbereitung</div><h1 style="font-size:clamp(36px,8vw,64px);font-weight:900;margin:0 0 20px;line-height:1.1">Dein Abitur.<br><span style="color:#93c5fd">Deine Regeln.</span></h1><p style="font-size:clamp(15px,3vw,18px);opacity:.9;max-width:540px;margin:0 auto 36px;line-height:1.7">Mit vollständigen Lerneinheiten (Analysis, Stochastik, Genetik...), dem korrekten Abi-Rechner für alle 16 Bundesländer und KI-Unterstützung.</p>';
   var ctaRow=mk('<div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-bottom:60px"></div>');
   var c1=document.createElement('button');c1.className='btn-blue';c1.style.cssText='font-size:16px;padding:15px 32px;background:#fff;color:#1d4ed8';c1.textContent='✨ Kostenlos starten';c1.onclick=function(){go('auth');};
-  var c2=document.createElement('button');c2.style.cssText='padding:15px 32px;background:rgba(255,255,255,.15);color:#fff;border:2px solid rgba(255,255,255,.4);border-radius:12px;font-size:16px;font-weight:700;cursor:pointer';c2.textContent='▶ Demo ansehen';c2.onclick=function(){S.user={name:'Demo Student',email:'demo@abitur.de',bundesland:'Nordrhein-Westfalen',premium:false};go('main');};
+  var c2=document.createElement('button');c2.style.cssText='padding:15px 32px;background:rgba(255,255,255,.15);color:#fff;border:2px solid rgba(255,255,255,.4);border-radius:12px;font-size:16px;font-weight:700;cursor:pointer';c2.textContent='▶ Demo ansehen';c2.onclick=function(){S.user={name:'Demo Student',email:'demo@abitur.de',bundesland:'Nordrhein-Westfalen',premium:false,demo:true};go('main');};
   ctaRow.appendChild(c1);ctaRow.appendChild(c2);hero.appendChild(ctaRow);
   var st=mk('<div style="display:flex;gap:40px;flex-wrap:wrap;justify-content:center"></div>');
   [['15 Fächer','mit echtem Inhalt'],['16','Bundesländer'],['40+','Lernkarten'],['Block I+II','Korrekte Formel']].forEach(function(s){st.appendChild(mk('<div style="text-align:center"><div style="font-size:26px;font-weight:900">'+s[0]+'</div><div style="font-size:12px;opacity:.75;margin-top:2px">'+s[1]+'</div></div>'));});
@@ -769,11 +936,57 @@ function buildAuth(){
     var m=i===0?'login':'register';t.onclick=function(){S.authMode=m;render();};tabs.appendChild(t);
   });
   box.appendChild(tabs);
-  function field(lbl,type,ph){var w=document.createElement('div');w.style.marginBottom='12px';var l=document.createElement('label');l.style.cssText='font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:5px';l.textContent=lbl;var i=document.createElement('input');i.type=type;i.placeholder=ph;i.className='wide-inp';w.appendChild(l);w.appendChild(i);return w;}
+  function field(lbl,type,ph){
+    var w=document.createElement('div');w.style.cssText='margin-bottom:12px;position:relative';
+    var l=document.createElement('label');l.style.cssText='font-size:13px;font-weight:600;color:#374151;display:block;margin-bottom:5px';l.textContent=lbl;
+    var i=document.createElement('input');i.type=type;i.placeholder=ph;i.className='wide-inp';
+    w.appendChild(l);w.appendChild(i);
+    if(type==='password'){
+      i.style.paddingRight='42px';
+      var eyeBtn=document.createElement('button');eyeBtn.type='button';
+      eyeBtn.style.cssText='position:absolute;right:6px;bottom:6px;background:none;border:none;cursor:pointer;font-size:16px;padding:6px;line-height:1;color:#64748b';
+      eyeBtn.textContent='👁️';eyeBtn.title='Passwort anzeigen';
+      eyeBtn.onclick=function(){
+        if(i.type==='password'){i.type='text';eyeBtn.textContent='🙈';eyeBtn.title='Passwort verbergen';}
+        else{i.type='password';eyeBtn.textContent='👁️';eyeBtn.title='Passwort anzeigen';}
+        i.focus();
+      };
+      w.appendChild(eyeBtn);
+    }
+    return w;
+  }
   var nameField, emailField, pwField;
   if(S.authMode==='register'){nameField=field('Name','text','Dein vollständiger Name');box.appendChild(nameField);}
   emailField=field('E-Mail','email','deine@email.de');box.appendChild(emailField);
   pwField=field('Passwort','password','••••••••');box.appendChild(pwField);
+  if(S.authMode==='login'){
+    var fpRow=document.createElement('div');fpRow.style.cssText='text-align:right;margin:-6px 0 12px';
+    var fpLink=document.createElement('span');fpLink.style.cssText='color:#1d4ed8;font-size:12px;font-weight:600;cursor:pointer';fpLink.textContent='Passwort vergessen?';
+    fpRow.appendChild(fpLink);box.appendChild(fpRow);
+    var fpBox=document.createElement('div');fpBox.style.cssText='display:'+(S.forgotPwOpen?'block':'none')+';background:#f1f5f9;border-radius:10px;padding:12px;margin-bottom:14px';
+    fpBox.innerHTML='<div style="font-size:12px;font-weight:700;margin-bottom:8px">Passwort zurücksetzen</div><div style="font-size:11px;color:#64748b;margin-bottom:8px">Gib die E-Mail-Adresse deines Kontos ein. Wir schicken dir einen Link/Code zum Zurücksetzen.</div>';
+    var fpEmail=document.createElement('input');fpEmail.type='email';fpEmail.placeholder='deine@email.de';fpEmail.className='wide-inp';fpEmail.style.marginBottom='8px';
+    fpBox.appendChild(fpEmail);
+    var fpMsg=document.createElement('div');fpMsg.style.cssText='font-size:12px;margin-bottom:8px;display:none';fpBox.appendChild(fpMsg);
+    var fpBtnRow=mk('<div style="display:flex;gap:8px"></div>');
+    var fpSend=document.createElement('button');fpSend.className='btn-blue';fpSend.style.cssText='flex:1;padding:9px;font-size:13px';fpSend.textContent='Code senden';
+    fpSend.onclick=async function(){
+      var em=fpEmail.value.trim();
+      fpMsg.style.display='block';
+      if(!em){fpMsg.style.color='#dc2626';fpMsg.textContent='Bitte E-Mail eingeben.';return;}
+      if(!sb){fpMsg.style.color='#dc2626';fpMsg.textContent='Supabase ist nicht konfiguriert.';return;}
+      fpSend.disabled=true;fpSend.textContent='Sende...';
+      var r=await sb.auth.resetPasswordForEmail(em);
+      fpSend.disabled=false;fpSend.textContent='Code senden';
+      if(r.error){fpMsg.style.color='#dc2626';fpMsg.textContent=r.error.message;}
+      else{fpMsg.style.color='#16a34a';fpMsg.textContent='E-Mail mit Reset-Link wurde gesendet (falls das Konto existiert).';}
+    };
+    var fpCancel=document.createElement('button');fpCancel.className='btn-gray';fpCancel.style.cssText='flex:1;padding:9px;font-size:13px';fpCancel.textContent='Abbrechen';
+    fpCancel.onclick=function(){S.forgotPwOpen=false;fpBox.style.display='none';};
+    fpBtnRow.appendChild(fpSend);fpBtnRow.appendChild(fpCancel);fpBox.appendChild(fpBtnRow);
+    box.appendChild(fpBox);
+    fpLink.onclick=function(){S.forgotPwOpen=!S.forgotPwOpen;fpBox.style.display=S.forgotPwOpen?'block':'none';};
+  }
   var errBox=document.createElement('div');errBox.style.cssText='display:none;background:#fee2e2;color:#dc2626;font-size:13px;padding:10px 12px;border-radius:8px;margin-bottom:12px';box.appendChild(errBox);
   function showErr(msg){errBox.textContent=msg;errBox.style.display='block';}
   var mb=document.createElement('button');mb.className='btn-blue';mb.style.cssText='width:100%;margin-top:10px;margin-bottom:12px';mb.textContent=S.authMode==='login'?'🔐 Anmelden':'🚀 Konto erstellen';
@@ -798,7 +1011,16 @@ function buildAuth(){
     }
     var u=result.data.user;
     S.user={id:u.id,name:(u.user_metadata&&u.user_metadata.full_name)||name||u.email.split('@')[0],email:u.email,bundesland:'',premium:false};
-    go('onboarding');
+    mb.textContent='Profil wird geladen...';
+    var row=await fetchProfile(u.id);
+    profileLoaded=true;
+    if(row && row.bundesland){
+      applyProfileRow(row);
+      initCalcDefaults();
+      go('main');
+    } else {
+      go('onboarding');
+    }
   };
   box.appendChild(mb);
   var gb=document.createElement('button');gb.className='btn-gray';gb.style.cssText='width:100%;margin-bottom:16px';gb.textContent='🌐 Mit Google fortfahren';
@@ -832,7 +1054,7 @@ function buildOnboarding(){
     ['Gymnasium','Gesamtschule','Berufsschule (Abitur)','Abendgymnasium'].forEach(function(s){var sel=S.ob.school===s;var b=document.createElement('button');b.style.cssText='width:100%;padding:13px 16px;border-radius:12px;border:2px solid '+(sel?'#1d4ed8':'#e2e8f0')+';background:'+(sel?'#eff6ff':'transparent')+';cursor:pointer;font-weight:600;font-size:14px;text-align:left;margin-bottom:8px;color:'+(sel?'#1d4ed8':'#374151');b.textContent=s;b.onclick=function(){S.ob.school=s;render();};box.appendChild(b);});
   } else if(step===2){
     box.innerHTML+='<h2 style="font-weight:800;font-size:20px;margin-bottom:6px">📅 Abiturjahr</h2><p style="color:#64748b;font-size:13px;margin-bottom:16px">Wann machst du dein Abitur?</p>';
-    ['2025','2026','2027','2028'].forEach(function(y){var sel=S.ob.year===y;var b=document.createElement('button');b.style.cssText='width:100%;padding:13px 16px;border-radius:12px;border:2px solid '+(sel?'#1d4ed8':'#e2e8f0')+';background:'+(sel?'#eff6ff':'transparent')+';cursor:pointer;font-weight:600;font-size:14px;text-align:left;margin-bottom:8px;color:'+(sel?'#1d4ed8':'#374151');b.textContent='Abitur '+y;b.onclick=function(){S.ob.year=y;render();};box.appendChild(b);});
+    ['2027','2028','2029','2030'].forEach(function(y){var sel=S.ob.year===y;var b=document.createElement('button');b.style.cssText='width:100%;padding:13px 16px;border-radius:12px;border:2px solid '+(sel?'#1d4ed8':'#e2e8f0')+';background:'+(sel?'#eff6ff':'transparent')+';cursor:pointer;font-weight:600;font-size:14px;text-align:left;margin-bottom:8px;color:'+(sel?'#1d4ed8':'#374151');b.textContent='Abitur '+y;b.onclick=function(){S.ob.year=y;render();};box.appendChild(b);});
   } else if(step===3){
     var r3=getRules();
     box.innerHTML+='<h2 style="font-weight:800;font-size:20px;margin-bottom:6px">⭐ '+r3.lkTerm+'e wählen</h2><p style="color:#64748b;font-size:13px;margin-bottom:6px">Wähle bis zu 3 Leistungskurse. Nur die ersten 2 werden doppelt gewichtet.</p>';
@@ -849,15 +1071,26 @@ function buildOnboarding(){
   var br=mk('<div style="display:flex;gap:12px;margin-top:22px"></div>');
   if(step>0){var bkB=document.createElement('button');bkB.className='btn-gray';bkB.style.flex='1';bkB.textContent='← Zurück';bkB.onclick=function(){S.ob.step--;render();};br.appendChild(bkB);}
   var nx=document.createElement('button');nx.className='btn-blue';nx.style.flex='2';nx.textContent=step===steps.length-1?'🎉 Loslegen!':'Weiter →';
-  nx.onclick=function(){if(step===steps.length-1){if(S.user)S.user.bundesland=S.ob.bl||'Nordrhein-Westfalen';initCalcDefaults();go('main');}else{S.ob.step++;render();}};
+  nx.onclick=function(){if(step===steps.length-1){
+    if(S.user){
+      S.user.bundesland=S.ob.bl||'Nordrhein-Westfalen';
+      S.user.school=S.ob.school;
+      S.user.abiYear=S.ob.year;
+      S.user.lk=S.ob.lk.slice();
+      S.user.subs=S.ob.subs.slice();
+    }
+    initCalcDefaults();
+    saveProfileNow();
+    go('main');
+  }else{S.ob.step++;render();}};
   br.appendChild(nx);box.appendChild(br);wrap.appendChild(box);return wrap;
 }
 
 // ==================== MAIN APP ====================
 function buildMain(){
   var bg=S.dark?'#0f172a':'#f8fafc';
-  var wrap=document.createElement('div');wrap.style.cssText='min-height:100vh;background:'+bg+';max-width:430px;margin:0 auto;position:relative;display:flex;flex-direction:column';
-  var tb=document.createElement('div');tb.style.cssText='position:sticky;top:0;z-index:30;background:'+bg+';padding:14px 18px 8px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid '+(S.dark?'#1e293b':'#e2e8f0');
+  var wrap=document.createElement('div');wrap.className='app-shell';wrap.style.cssText='background:'+bg;
+  var tb=document.createElement('div');tb.className='app-topbar';tb.style.cssText='background:'+bg;
   var titles={home:'🏠 Dashboard',calc:'📊 Abi-Rechner',subs:'📚 Fächer',quiz:'✏️ Üben',cards:'🃏 Karteikarten',ai:'🤖 KI-Tutor',plan:'📅 Lernplan',exams:'📄 Prüfungen',prog:'📈 Fortschritt'};
   var tEl=document.createElement('div');tEl.style.cssText='font-weight:800;font-size:16px';tEl.textContent=titles[S.tab]||'Jetzt Abitur!';
   var topR=mk('<div style="display:flex;gap:8px;align-items:center"></div>');
@@ -866,10 +1099,11 @@ function buildMain(){
   var av=document.createElement('div');av.style.cssText='width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#1d4ed8,#7c3aed);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:13px;cursor:pointer';av.textContent=(S.user&&S.user.name)?S.user.name.charAt(0):'U';av.onclick=function(){S.profileModal=true;render();};
   topR.appendChild(dk2);topR.appendChild(av);tb.appendChild(tEl);tb.appendChild(topR);wrap.appendChild(tb);
   var xpPct=Math.round((S.xp%1000)/10);
-  var xpW=document.createElement('div');xpW.style.cssText='padding:5px 18px 7px;background:'+bg;
-  xpW.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:10px;font-weight:600;color:#94a3b8">Lv.'+S.level+' · '+S.xp+' XP</span><span style="font-size:10px;color:#94a3b8">'+(1000-S.xp%1000)+' bis Lv.'+(S.level+1)+'</span></div><div style="height:4px;background:'+(S.dark?'#1e293b':'#e2e8f0')+';border-radius:2px"><div style="width:'+xpPct+'%;height:100%;border-radius:2px;background:linear-gradient(90deg,#f59e0b,#f97316)"></div></div>';
+  var lvl=calcLevel();
+  var xpW=document.createElement('div');xpW.className='app-xpbar';xpW.style.cssText='background:'+bg;
+  xpW.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:10px;font-weight:600;color:#94a3b8">Lv.'+lvl+' · '+S.xp+' XP</span><span style="font-size:10px;color:#94a3b8">'+(1000-S.xp%1000)+' bis Lv.'+(lvl+1)+'</span></div><div style="height:4px;background:'+(S.dark?'#1e293b':'#e2e8f0')+';border-radius:2px"><div style="width:'+xpPct+'%;height:100%;border-radius:2px;background:linear-gradient(90deg,#f59e0b,#f97316)"></div></div>';
   wrap.appendChild(xpW);
-  var content=document.createElement('div');content.className='fade-up no-scroll';content.style.cssText='flex:1;overflow-y:auto;padding-bottom:76px';
+  var content=document.createElement('div');content.className='fade-up no-scroll app-content';
   if(S.tab==='home')  content.appendChild(buildHome());
   if(S.tab==='calc')  content.appendChild(buildCalc());
   if(S.tab==='subs')  content.appendChild(buildSubs());
@@ -889,7 +1123,7 @@ function buildMain(){
 
 function buildNav(){
   var bg=S.dark?'#0f172a':'#fff';
-  var nav=document.createElement('div');nav.style.cssText='position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:430px;background:'+bg+';border-top:1px solid '+(S.dark?'#1e293b':'#e2e8f0')+';padding:5px 2px 10px;display:flex;justify-content:space-around;z-index:30';
+  var nav=document.createElement('div');nav.className='app-nav';nav.style.cssText='background:'+bg;
   [{id:'home',icon:'🏠',lbl:'Home'},{id:'calc',icon:'📊',lbl:'Rechner'},{id:'subs',icon:'📚',lbl:'Fächer'},{id:'quiz',icon:'✏️',lbl:'Üben'},{id:'ai',icon:'🤖',lbl:'KI'},{id:'prog',icon:'📈',lbl:'Stats'}].forEach(function(item){
     var active=S.tab===item.id;var col=active?(S.dark?'#60a5fa':'#1d4ed8'):(S.dark?'#64748b':'#94a3b8');
     var btn=document.createElement('button');btn.className='nav-item'+(active?' active':'');btn.style.color=col;
@@ -916,7 +1150,9 @@ function buildHome(){
   else{gd.appendChild(mk('<div style="font-size:12px;opacity:.8">Noten im Rechner eintragen →</div>'));}
   gc.appendChild(gd);gc.onclick=function(){setTab('calc');};d.appendChild(gc);
   var sg=mk('<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>');
-  [['🔥','12 Tage','Streak'],['⭐','+180 XP','Heute'],['📚','15 Fächer','Verfügbar'],['🃏','12 Karten','Fällig']].forEach(function(x){var c=document.createElement('div');c.className='card';c.style.padding='14px';c.innerHTML='<div style="font-size:22px;margin-bottom:4px">'+x[0]+'</div><div style="font-weight:800;font-size:17px">'+x[1]+'</div><div style="font-size:11px;color:#94a3b8;margin-top:1px">'+x[2]+'</div>';sg.appendChild(c);});
+  var todayXp=(S.activityLog[todayStr()]&&S.activityLog[todayStr()].xp)||0;
+  var dueCards=Math.max(0,FLASHCARDS.length-S.cardsToday.length);
+  [['🔥',S.streak+' Tage','Streak'],['⭐','+'+todayXp+' XP','Heute'],['📚',SUBJECTS.length+' Fächer','Verfügbar'],['🃏',dueCards+' Karten','Fällig']].forEach(function(x){var c=document.createElement('div');c.className='card';c.style.padding='14px';c.innerHTML='<div style="font-size:22px;margin-bottom:4px">'+x[0]+'</div><div style="font-weight:800;font-size:17px">'+x[1]+'</div><div style="font-size:11px;color:#94a3b8;margin-top:1px">'+x[2]+'</div>';sg.appendChild(c);});
   d.appendChild(sg);
   var qh=document.createElement('h3');qh.style.cssText='font-weight:700;font-size:15px;margin-bottom:10px';qh.textContent='⚡ Schnellstart';d.appendChild(qh);
   var qa=mk('<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>');
@@ -926,11 +1162,69 @@ function buildHome(){
 }
 
 // ==================== CALCULATOR ====================
+// Lightweight, targeted update used while typing grades into the calculator.
+// It only touches the small set of result elements (by id) instead of
+// rebuilding the whole calculator DOM, so inputs never lose focus/cursor
+// and the numbers update instantly as you type.
+function refreshCalcUI(){
+  if(S.page!=='main'||S.tab!=='calc') return;
+  var res=calcResult();
+  var gv=document.getElementById('calc-grade-val');
+  if(gv){ gv.textContent=res?res.grade:'–'; gv.style.fontSize=((res&&!res.passed)?24:44)+'px'; }
+  var bi=document.getElementById('calc-blockI-val'); if(bi&&res) bi.textContent=res.blockI+'/600';
+  var b2v=document.getElementById('calc-blockII-val'); if(b2v&&res) b2v.textContent=res.blockII+'/300';
+  var tot=document.getElementById('calc-total-val'); if(tot&&res) tot.textContent=res.total+'/900';
+  var ps=document.getElementById('calc-pass-status');
+  if(ps&&res) ps.innerHTML=(res.passed?'✅ Bestanden':'⚠️ Noch nicht bestanden')+' · Defizite: '+res.defizite;
+
+  S.calcSubjects.forEach(function(sub){
+    var validGrades=sub.grades.filter(function(g){return g!==''&&!isNaN(+g);});
+    var avg=validGrades.length>0?(validGrades.reduce(function(s,v){return s+(+v);},0)/validGrades.length).toFixed(1):'–';
+    var avgCol=avg==='–'?'#94a3b8':(+avg>=10?'#16a34a':(+avg>=5?'#d97706':'#dc2626'));
+    var el=document.getElementById('calc-avg-'+sub.id);
+    if(el){ el.textContent=avg; el.style.color=avgCol; }
+  });
+
+  if(isBayern()&&S.calcSeminarEnabled){
+    S.calcSeminar.forEach(function(sem,si){
+      var score=calcSeminarScore(sem);
+      var scoreEl=document.getElementById('calc-sem-score-'+si);
+      if(scoreEl) scoreEl.innerHTML=score!==null?' → <span style="color:#1d4ed8">'+score+'/30 Punkte</span>':'';
+      var noteEl=document.getElementById('calc-sem-note-'+si);
+      if(noteEl) noteEl.textContent=score!==null?'Formel: (Schriftlich×3 + Präs.×1) ÷ 2 = '+score+' von max. 30 Punkten':'';
+    });
+  }
+
+  var filledExams=S.calcExams.filter(function(e){return e.grade!==''&&!isNaN(+e.grade);});
+  var factor=filledExams.length>=5?4:5;
+  var factorLabel=document.getElementById('calc-b2-factor-label');
+  if(factorLabel) factorLabel.textContent='Punkte (×'+factor+')';
+  S.calcExams.forEach(function(exam){
+    var weighted=exam.grade!==''&&!isNaN(+exam.grade)?Math.min(15,Math.max(0,+exam.grade))*factor:'–';
+    var wCol=weighted==='–'?'#94a3b8':(+weighted>=40?'#16a34a':(+weighted>=20?'#d97706':'#dc2626'));
+    var el=document.getElementById('calc-w-'+exam.id);
+    if(el){ el.textContent=weighted; el.style.color=wCol; }
+  });
+  var b2Total=calcBlockII();
+  var b2TotalEl=document.getElementById('calc-b2-total');
+  if(b2TotalEl) b2TotalEl.innerHTML='<b>Block II Summe: '+b2Total+'/300 Punkte</b> '+(b2Total>=100?'✅ (≥100 Pkt., bestanden)':'⚠️ (min. 100 Pkt. nötig)');
+
+  if(S._calcActivityToday!==todayStr()){
+    S._calcActivityToday=todayStr();
+    recordActivity(0);
+  }
+}
+
 function buildCalc(){
   initCalcDefaults();
   var d=document.createElement('div');d.style.cssText='padding:16px 18px';
   var r=getRules();var bl=(S.user&&S.user.bundesland)||'NRW';
   var res=calcResult();
+  if(isDemo()){
+    var demoBanner=mk('<div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:12px;padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px"></div>');
+    demoBanner.innerHTML='<span style="font-size:20px">🔒</span><div style="flex:1;font-size:12px;color:#92400e"><b>Demo-Modus:</b> Registriere dich kostenlos, um eigene Noten einzutragen.</div>';
+    var demoBtn=document.createElement('button');demoBtn.style.cssText='background:#d97706;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap';demoBtn.textContent='Registrieren';demoBtn.onclick=function(){promptSignup('register');};demoBanner.appendChild(demoBtn);d.appendChild(demoBanner);
+  }
 
   // Header
   var hdr=document.createElement('div');hdr.style.cssText='background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;border-radius:18px;padding:20px;margin-bottom:14px';
@@ -938,7 +1232,8 @@ function buildCalc(){
   var gradeRow=mk('<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px"></div>');
   var gradeVal=res?res.grade:'–';
   var gradeFs=(res&&!res.passed)?24:44;
-  gradeRow.appendChild(mk('<div style="font-size:'+gradeFs+'px;font-weight:900;line-height:1">'+gradeVal+'</div>'));
+  var gradeValEl=mk('<div id="calc-grade-val" style="font-size:'+gradeFs+'px;font-weight:900;line-height:1">'+gradeVal+'</div>');
+  gradeRow.appendChild(gradeValEl);
   var infoBtn=document.createElement('button');
   infoBtn.title='Punkte-Notentabelle anzeigen';
   infoBtn.style.cssText='background:rgba(255,255,255,.18);border:none;color:#fff;border-radius:50%;width:22px;height:22px;font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0';
@@ -948,9 +1243,9 @@ function buildCalc(){
   hdr.appendChild(gradeRow);
   if(res){
     var blocks=mk('<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px"></div>');
-    [['Block I',res.blockI+'/600'],['Block II',res.blockII+'/300'],['Gesamt',res.total+'/900']].forEach(function(b){blocks.appendChild(mk('<div style="background:rgba(255,255,255,.12);border-radius:8px;padding:8px;text-align:center"><div style="font-weight:800;font-size:13px">'+b[1]+'</div><div style="font-size:10px;opacity:.75">'+b[0]+'</div></div>'));});
+    [['calc-blockI-val','Block I',res.blockI+'/600'],['calc-blockII-val','Block II',res.blockII+'/300'],['calc-total-val','Gesamt',res.total+'/900']].forEach(function(b){blocks.appendChild(mk('<div style="background:rgba(255,255,255,.12);border-radius:8px;padding:8px;text-align:center"><div id="'+b[0]+'" style="font-weight:800;font-size:13px">'+b[2]+'</div><div style="font-size:10px;opacity:.75">'+b[1]+'</div></div>'));});
     hdr.appendChild(blocks);
-    var passEl=mk('<div style="background:rgba(255,255,255,.12);border-radius:8px;padding:6px 10px;font-size:12px;display:flex;gap:10px">'+(res.passed?'✅ Bestanden':'⚠️ Noch nicht bestanden')+' · Defizite: '+res.defizite+'</div>');
+    var passEl=mk('<div id="calc-pass-status" style="background:rgba(255,255,255,.12);border-radius:8px;padding:6px 10px;font-size:12px;display:flex;gap:10px">'+(res.passed?'✅ Bestanden':'⚠️ Noch nicht bestanden')+' · Defizite: '+res.defizite+'</div>');
     hdr.appendChild(passEl);
   }
   d.appendChild(hdr);
@@ -990,11 +1285,17 @@ function buildCalc(){
       for(var q=0;q<4;q++){
         var inp=document.createElement('input');inp.type='number';inp.min='0';inp.max='15';inp.className='grade-inp';inp.value=sub.grades[q];inp.placeholder='–';
         inp.id='gi-'+sub.id+'-'+q;
-        inp.oninput=(function(s2,qi){return function(e){s2.grades[qi]=e.target.value;render();};})(sub,q);
+        if(isDemo()){
+          inp.readOnly=true;inp.style.cursor='pointer';inp.style.background=S.dark?'#0f172a':'#f1f5f9';
+          inp.onfocus=function(e){e.target.blur();promptSignup('register');};
+          inp.onclick=function(){promptSignup('register');};
+        } else {
+          inp.oninput=(function(s2,qi){return function(e){s2.grades[qi]=e.target.value;saveCalcState();refreshCalcUI();};})(sub,q);
+        }
         row.appendChild(inp);
       }
       // Average
-      row.appendChild(mk('<div style="width:38px;text-align:center;font-weight:800;font-size:13px;color:'+avgCol+'">'+avg+'</div>'));
+      row.appendChild(mk('<div id="calc-avg-'+sub.id+'" style="width:38px;text-align:center;font-weight:800;font-size:13px;color:'+avgCol+'">'+avg+'</div>'));
       // Delete
       var del=document.createElement('button');del.className='btn-sm btn-red-sm';del.textContent='✕';del.style.width='26px';del.style.padding='4px';
       del.onclick=(function(idx){return function(){S.calcSubjects.splice(idx,1);render();};})(si);
@@ -1030,7 +1331,7 @@ function buildCalc(){
           var sem=S.calcSeminar[si];
           var semScore=calcSeminarScore(sem);
           var semCard=mk('<div class="calc-subject-row" style="flex-direction:column;align-items:stretch;gap:10px;margin-bottom:8px"></div>');
-          semCard.appendChild(mk('<div style="font-weight:700;font-size:13px">'+semName+(semScore!==null?' → <span style="color:#1d4ed8">'+semScore+'/30 Punkte</span>':'')+'</div>'));
+          semCard.appendChild(mk('<div style="font-weight:700;font-size:13px">'+semName+'<span id="calc-sem-score-'+si+'">'+(semScore!==null?' → <span style="color:#1d4ed8">'+semScore+'/30 Punkte</span>':'')+'</span></div>'));
           var semGrid=mk('<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px"></div>');
           ['Mitarbeit Q1','Mitarbeit Q2','Schriftlich (×3)','Präsentation (×1)'].forEach(function(label,fi){
             var fw=mk('<div style="display:flex;flex-direction:column;gap:3px"></div>');
@@ -1039,24 +1340,30 @@ function buildCalc(){
             var key=['ma1','ma2','schriftl','praes'][fi];
             inp.value=sem[key];inp.placeholder='–';
             inp.id='sm-'+si+'-'+key;
-            inp.oninput=(function(s,k){return function(e){s[k]=e.target.value;render();};})(sem,key);
+            if(isDemo()){
+              inp.readOnly=true;inp.style.cursor='pointer';inp.style.background=S.dark?'#0f172a':'#f1f5f9';
+              inp.onfocus=function(e){e.target.blur();promptSignup('register');};
+              inp.onclick=function(){promptSignup('register');};
+            } else {
+              inp.oninput=(function(s,k){return function(e){s[k]=e.target.value;saveCalcState();refreshCalcUI();};})(sem,key);
+            }
             fw.appendChild(inp);semGrid.appendChild(fw);
           });
           semCard.appendChild(semGrid);
-          if(semScore!==null)semCard.appendChild(mk('<div style="font-size:11px;color:#64748b">Formel: (Schriftlich×3 + Präs.×1) ÷ 2 = '+semScore+' von max. 30 Punkten</div>'));
+          semCard.appendChild(mk('<div id="calc-sem-note-'+si+'" style="font-size:11px;color:#64748b">'+(semScore!==null?'Formel: (Schriftlich×3 + Präs.×1) ÷ 2 = '+semScore+' von max. 30 Punkten':'')+'</div>'));
           d.appendChild(semCard);
         });
       }
     }
 
     // Summary
-    d.appendChild(mk('<div style="background:'+(S.dark?'#1e293b':'#f1f5f9')+';border-radius:12px;padding:14px;font-size:13px"><div style="font-weight:700;margin-bottom:8px">📐 Block I Berechnung</div><div style="color:#64748b;line-height:1.8">• 2 Leistungskurse werden mit Faktor <b>×2</b> gewichtet<br>• Restliche Kurse: Faktor <b>×1</b><br>• Formel: (Σ gewichtete Noten) ÷ (Σ Gewichte) × 40<br>• Maximum: <b>600 Punkte</b> | Minimum zum Bestehen: <b>200 Punkte</b>'+(isBayern()?'<br>• Bayern-Seminar: max. 30 Pkt./Seminar (Formel: (S×3+P×1)÷2)':'')+'</div></div>'));
+    d.appendChild(mk('<div style="background:'+(S.dark?'#1e293b':'#f1f5f9')+';border-radius:12px;padding:14px;font-size:13px"><div style="font-weight:700;margin-bottom:8px">📐 Block I Berechnung</div><div style="color:#64748b;line-height:1.8">• 2 Leistungskurse werden mit Faktor <b>×2</b> gewichtet<br>• Restliche Kurse: Faktor <b>×1</b><br>• Formel: (Σ gewichtete Noten) ÷ (Σ Gewichte) × 40<br>• Maximum: <b>600 Punkte</b> | Minimum zum Bestehen: <b>200 Punkte</b><br>• Ein <b>leeres</b> Notenfeld (nicht 0) wird als „gestrichen" gewertet und fließt nicht in die Berechnung ein'+(isBayern()?'<br>• Bayern-Seminar: max. 30 Pkt./Seminar (Formel: (S×3+P×1)÷2)':'')+'</div></div>'));
   } else {
     // BLOCK II
     d.appendChild(mk('<div style="background:'+(S.dark?'#1e293b':'#fff')+';border:1.5px solid '+(S.dark?'#334155':'#e2e8f0')+';border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:12px;color:#64748b">📋 <b>Block II: Abiturprüfungen</b><br>4 Prüfungsfächer → jede Note × <b>5</b> (max 75/Fach = 300 ges.)<br>5 Prüfungsfächer → jede Note × <b>4</b> (max 60/Fach = 300 ges.)</div>'));
     var filledExams=S.calcExams.filter(function(e){return e.grade!==''&&!isNaN(+e.grade);});
     var factor=filledExams.length>=5?4:5;
-    var b2h=mk('<div style="display:flex;gap:4px;padding:0 4px;margin-bottom:6px;font-size:10px;font-weight:700;color:#94a3b8"><div style="flex:1">PRÜFUNGSFACH</div><div style="width:60px;text-align:center">Note (0–15)</div><div style="width:60px;text-align:center">Punkte (×'+factor+')</div></div>');
+    var b2h=mk('<div style="display:flex;gap:4px;padding:0 4px;margin-bottom:6px;font-size:10px;font-weight:700;color:#94a3b8"><div style="flex:1">PRÜFUNGSFACH</div><div style="width:60px;text-align:center">Note (0–15)</div><div id="calc-b2-factor-label" style="width:60px;text-align:center">Punkte (×'+factor+')</div></div>');
     d.appendChild(b2h);
     S.calcExams.forEach(function(exam,ei){
       var weighted=exam.grade!==''&&!isNaN(+exam.grade)?Math.min(15,Math.max(0,+exam.grade))*factor:'–';
@@ -1064,20 +1371,27 @@ function buildCalc(){
       var row=mk('<div class="calc-subject-row" style="margin-bottom:8px"></div>');
       var nameInp=document.createElement('input');nameInp.type='text';nameInp.placeholder='Prüfungsfach '+(ei+1);nameInp.value=exam.name;nameInp.style.cssText='flex:1;border:none;background:transparent;font-size:13px;font-weight:600;outline:none;color:'+(S.dark?'#f1f5f9':'#0f172a');
       nameInp.id='en-'+exam.id;
-      nameInp.oninput=(function(e2){return function(ev){e2.name=ev.target.value;render();};})(exam);
+      if(isDemo()){ nameInp.readOnly=true; nameInp.onfocus=function(e){e.target.blur();promptSignup('register');}; }
+      else{ nameInp.oninput=(function(e2){return function(ev){e2.name=ev.target.value;saveCalcState();};})(exam); }
       row.appendChild(nameInp);
       var gradeInp=document.createElement('input');gradeInp.type='number';gradeInp.min='0';gradeInp.max='15';gradeInp.className='grade-inp';gradeInp.style.width='60px';gradeInp.value=exam.grade;gradeInp.placeholder='–';
       gradeInp.id='eg-'+exam.id;
-      gradeInp.oninput=(function(e2){return function(ev){e2.grade=ev.target.value;render();};})(exam);
+      if(isDemo()){
+        gradeInp.readOnly=true;gradeInp.style.cursor='pointer';gradeInp.style.background=S.dark?'#0f172a':'#f1f5f9';
+        gradeInp.onfocus=function(e){e.target.blur();promptSignup('register');};
+        gradeInp.onclick=function(){promptSignup('register');};
+      } else {
+        gradeInp.oninput=(function(e2){return function(ev){e2.grade=ev.target.value;saveCalcState();refreshCalcUI();};})(exam);
+      }
       row.appendChild(gradeInp);
-      row.appendChild(mk('<div style="width:60px;text-align:center;font-weight:800;font-size:13px;color:'+wCol+'">'+weighted+'</div>'));
+      row.appendChild(mk('<div id="calc-w-'+exam.id+'" style="width:60px;text-align:center;font-weight:800;font-size:13px;color:'+wCol+'">'+weighted+'</div>'));
       var del=document.createElement('button');del.className='btn-sm btn-red-sm';del.textContent='✕';del.style.width='26px';del.style.padding='4px';
       del.onclick=(function(idx){return function(){if(S.calcExams.length>1)S.calcExams.splice(idx,1);render();};})(ei);
       row.appendChild(del);d.appendChild(row);
     });
     if(S.calcExams.length<5){var addE=document.createElement('button');addE.className='btn-gray';addE.style.cssText='width:100%;margin-top:4px;font-size:13px;padding:10px';addE.textContent='+ 5. Prüfungsfach hinzufügen (optional)';addE.onclick=function(){S.calcExams.push({id:S.calcNextId++,name:'Prüfung 5',grade:''});render();};d.appendChild(addE);}
     var b2Total=calcBlockII();
-    d.appendChild(mk('<div style="background:'+(S.dark?'#1e293b':'#f1f5f9')+';border-radius:12px;padding:14px;margin-top:8px;font-size:13px"><b>Block II Summe: '+b2Total+'/300 Punkte</b> '+(b2Total>=100?'✅ (≥100 Pkt., bestanden)':'⚠️ (min. 100 Pkt. nötig)')+'</div>'));
+    d.appendChild(mk('<div id="calc-b2-total" style="background:'+(S.dark?'#1e293b':'#f1f5f9')+';border-radius:12px;padding:14px;margin-top:8px;font-size:13px"><b>Block II Summe: '+b2Total+'/300 Punkte</b> '+(b2Total>=100?'✅ (≥100 Pkt., bestanden)':'⚠️ (min. 100 Pkt. nötig)')+'</div>'));
   }
   return d;
 }
@@ -1109,9 +1423,31 @@ function buildSubs(){
         d.appendChild(exSec);
       }
       if(lesson.tip){var tipSec=mk('<div class="lesson-section"></div>');tipSec.appendChild(mk('<h4>💡 Abitur-Tipp</h4>'));tipSec.appendChild(mk('<div class="tip-box" style="font-size:13px;line-height:1.6">'+lesson.tip+'</div>'));d.appendChild(tipSec);}
+      var isLearned=S.topicsLearned.indexOf(lt.key)>=0;
+      var markBtn=document.createElement('button');
+      markBtn.style.cssText='width:100%;padding:13px;border-radius:12px;border:2px solid '+(isLearned?'#16a34a':'#e2e8f0')+';background:'+(isLearned?'#dcfce7':'transparent')+';color:'+(isLearned?'#15803d':'#374151')+';font-weight:700;font-size:14px;cursor:pointer;margin-top:4px;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px';
+      markBtn.innerHTML=isLearned?'✅ Als gelernt markiert':'☐ Als gelernt markieren';
+      markBtn.onclick=function(){
+        var idx=S.topicsLearned.indexOf(lt.key);
+        if(idx>=0){ S.topicsLearned.splice(idx,1); }
+        else{ S.topicsLearned.push(lt.key); recordActivity(3); }
+        saveProgressState();render();
+      };
+      d.appendChild(markBtn);
       var quizBtn=document.createElement('button');quizBtn.className='btn-blue';quizBtn.style.cssText='width:100%;margin-top:8px';quizBtn.textContent='✏️ Aufgaben zu diesem Thema üben';quizBtn.onclick=function(){S.qSubFilter=lt.subId;setTab('quiz');};d.appendChild(quizBtn);
     } else {
       d.appendChild(mk('<div style="padding:20px;text-align:center"><div style="font-size:40px;margin-bottom:12px">📚</div><div style="font-weight:700;font-size:16px;margin-bottom:6px">'+lt.title+'</div><div style="color:#64748b;font-size:14px;margin-bottom:16px">Dieses Thema wird demnächst mit vollständigen Inhalten gefüllt. Frage deinen KI-Tutor!</div></div>'));
+      var isLearned2=S.topicsLearned.indexOf(lt.key)>=0;
+      var markBtn2=document.createElement('button');
+      markBtn2.style.cssText='width:100%;padding:13px;border-radius:12px;border:2px solid '+(isLearned2?'#16a34a':'#e2e8f0')+';background:'+(isLearned2?'#dcfce7':'transparent')+';color:'+(isLearned2?'#15803d':'#374151')+';font-weight:700;font-size:14px;cursor:pointer;margin-bottom:10px;display:flex;align-items:center;justify-content:center;gap:8px';
+      markBtn2.innerHTML=isLearned2?'✅ Als gelernt markiert':'☐ Als gelernt markieren';
+      markBtn2.onclick=function(){
+        var idx=S.topicsLearned.indexOf(lt.key);
+        if(idx>=0){ S.topicsLearned.splice(idx,1); }
+        else{ S.topicsLearned.push(lt.key); recordActivity(3); }
+        saveProgressState();render();
+      };
+      d.appendChild(markBtn2);
       var aiBtn=document.createElement('button');aiBtn.className='btn-blue';aiBtn.style.cssText='width:100%';aiBtn.textContent='🤖 KI-Tutor zu diesem Thema fragen';aiBtn.onclick=function(){S.aiMsgs=[{role:'ai',text:'Ich erkläre dir gerne "'+lt.title+'"! Stelle deine Frage oder ich gebe dir eine Übersicht der wichtigsten Konzepte.'}];setTab('ai');};d.appendChild(aiBtn);
     }
     return d;
@@ -1126,12 +1462,15 @@ function buildSubs(){
     d.appendChild(hd);
     sub.topics.forEach(function(topic,i){
       var hasLesson=!!LESSONS[sub.id+'_'+topic.id.split('_').pop()]||!!LESSONS[sub.id+'_'+topic.id];
+      var isLearned=S.topicsLearned.indexOf(sub.id+'_'+topic.id)>=0;
       var c=document.createElement('div');c.className='card';c.style.cssText='padding:14px 16px;margin-bottom:10px;cursor:pointer;display:flex;align-items:center;gap:12px';
       var icon2=mk('<div style="width:36px;height:36px;border-radius:10px;background:'+sub.col+'18;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px">'+sub.icon+'</div>');
       var info=mk('<div style="flex:1"><div style="font-weight:600;font-size:14px">'+topic.title+'</div><div style="font-size:11px;color:#94a3b8;margin-top:2px">'+(hasLesson?'✅ Vollständige Lerneinheit verfügbar':'📝 Themenübersicht')+'</div></div>');
       c.appendChild(icon2);c.appendChild(info);
+      if(isLearned) c.appendChild(mk('<div style="font-size:16px;color:#16a34a" title="Gelernt">✔️</div>'));
       c.appendChild(mk('<div style="font-size:18px;color:#94a3b8">›</div>'));
       c.onclick=function(){
+        if(isDemo()){ promptSignup('register'); return; }
         var key=sub.id+'_'+topic.id;
         S.currentTopic={key:key,title:topic.title,subId:sub.id};render();
       };
@@ -1149,9 +1488,10 @@ function buildSubs(){
   var filtered=SUBJECTS.filter(function(s){return !S.search||s.name.toLowerCase().indexOf(S.search.toLowerCase())>=0;});
   d.appendChild(mk('<div style="font-size:11px;font-weight:700;color:#94a3b8;margin-bottom:10px">'+filtered.length+' FÄCHER VERFÜGBAR</div>'));
   var grid=mk('<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"></div>');
-  var pvals=[62,47,80,72,35,58,44,25,66,38,20,18,30,42,55];
   filtered.forEach(function(sub,i){
-    var lk=S.ob.lk.indexOf(sub.id)>=0;var p=pvals[SUBJECTS.indexOf(sub)]||40;
+    var lk=S.ob.lk.indexOf(sub.id)>=0;
+    var learnedCount=S.topicsLearned.filter(function(k){return k.indexOf(sub.id+'_')===0;}).length;
+    var p=sub.topics.length?Math.round(learnedCount/sub.topics.length*100):0;
     var c=document.createElement('div');c.className='card';c.style.cssText='padding:16px;cursor:pointer;transition:all .2s';
     c.innerHTML='<div style="font-size:30px;margin-bottom:6px">'+sub.icon+'</div><div style="font-weight:700;font-size:13px;margin-bottom:2px">'+sub.name+'</div><div style="font-size:11px;color:#94a3b8;margin-bottom:8px">'+sub.topics.length+' Themen</div>'+(lk?'<span class="badge b-blue">LK</span>':'')+' <div class="pbar" style="margin-top:8px"><div class="pfill" style="width:'+p+'%;background:'+sub.col+'"></div></div>';
     c.onclick=(function(s){return function(){S.subj=s;render();};})(sub);grid.appendChild(c);
@@ -1162,6 +1502,39 @@ function buildSubs(){
 // ==================== QUIZ ====================
 function buildQuiz(){
   var d=document.createElement('div');d.style.cssText='padding:16px 18px';
+  var isPrem=!!(S.user&&S.user.premium);
+
+  // Section switcher: AFB Aufgaben vs. Probe Klausuren
+  var secRow=mk('<div style="display:flex;gap:8px;margin-bottom:16px"></div>');
+  var afbBtn=document.createElement('button');
+  afbBtn.style.cssText='flex:1;padding:11px;border-radius:12px;border:none;font-weight:700;font-size:13px;cursor:pointer;background:'+(S.uebenSection==='afb'?'#1d4ed8':'#f1f5f9')+';color:'+(S.uebenSection==='afb'?'#fff':'#64748b');
+  afbBtn.textContent='✏️ AFB Aufgaben';
+  afbBtn.onclick=function(){S.uebenSection='afb';render();};
+  var klBtn=document.createElement('button');
+  klBtn.style.cssText='flex:1;padding:11px;border-radius:12px;border:none;font-weight:700;font-size:13px;cursor:pointer;background:'+(S.uebenSection==='klausuren'?'#7c3aed':'#f1f5f9')+';color:'+(S.uebenSection==='klausuren'?'#fff':'#64748b');
+  klBtn.innerHTML=isPrem?'📄 Probe Klausuren':'🔒 Probe Klausuren';
+  klBtn.onclick=function(){
+    if(!isPrem){ S.premModal=true; render(); return; }
+    S.uebenSection='klausuren'; render();
+  };
+  secRow.appendChild(afbBtn);secRow.appendChild(klBtn);d.appendChild(secRow);
+
+  if(S.uebenSection==='klausuren'){
+    if(!isPrem){ d.appendChild(paywallCard('Probe-Klausuren sind ein Premium-Feature. Hol dir Premium für Zugriff auf Original-Abiturklausuren und Klausuren nach Thema.')); return d; }
+    d.appendChild(buildKlausurenSection());
+    return d;
+  }
+
+  // ---- AFB Aufgaben (daily free-question limit for non-premium accounts) ----
+  qDailyRollover();
+  if(S.user && !isPrem && S.qDailyCount>=15){
+    d.appendChild(paywallCard('Du hast deine 15 kostenlosen Aufgaben für heute genutzt. Hol dir Premium für unbegrenzte Aufgaben.'));
+    return d;
+  }
+  if(S.user && !isPrem){
+    d.appendChild(mk('<div style="text-align:right;font-size:11px;color:#94a3b8;margin-bottom:8px">'+(15-S.qDailyCount)+'/15 kostenlose Aufgaben heute übrig</div>'));
+  }
+
   // Subject filter
   var sfRow=mk('<div style="display:flex;gap:6px;overflow-x:auto;margin-bottom:10px;padding-bottom:2px" class="no-scroll"></div>');
   [{id:'all',label:'Alle',col:'#1d4ed8'},{id:'math',label:'📐 Mathe',col:'#1d4ed8'},{id:'his',label:'🏛️ Geschichte',col:'#92400e'},{id:'bio',label:'🧬 Biologie',col:'#16a34a'},{id:'phy',label:'⚛️ Physik',col:'#059669'},{id:'de',label:'📖 Deutsch',col:'#7c3aed'}].forEach(function(sf){
@@ -1203,7 +1576,14 @@ function buildQuiz(){
     else{bg=S.dark?'#1e293b':'#f8fafc';border=S.dark?'#334155':'#e2e8f0';color=S.dark?'#e2e8f0':'#374151';}
     var btn=document.createElement('button');btn.style.cssText='width:100%;padding:12px 14px;border-radius:12px;border:2px solid '+border+';background:'+bg+';color:'+color+';font-size:13px;font-weight:600;text-align:left;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;gap:10px;transition:all .2s';
     btn.innerHTML='<span style="width:24px;height:24px;border-radius:50%;background:'+border+'22;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0">'+String.fromCharCode(65+i)+'</span><span>'+opt+'</span>';
-    btn.onclick=(function(idx){return function(){if(!S.qAnswered){S.qAnswered=true;S.qSelected=idx;if(idx===q.ans){S.qScore+=15;S.xp+=15;}render();};};})(i);
+    btn.onclick=(function(idx){return function(){
+      if(!S.qAnswered){
+        S.qAnswered=true;S.qSelected=idx;
+        if(idx===q.ans){S.qScore+=15;recordActivity(15);}else{recordActivity(0);}
+        if(S.user && !isPrem){ qDailyRollover(); S.qDailyCount++; saveProgressState(); }
+        render();
+      }
+    };})(i);
     d.appendChild(btn);
   });
   if(S.qAnswered){
@@ -1214,12 +1594,105 @@ function buildQuiz(){
   return d;
 }
 
+// Generic locked/paywall card shown when a premium-only area is accessed.
+function paywallCard(msg){
+  var w=document.createElement('div');
+  w.appendChild(mk('<div style="text-align:center;padding:36px 16px"><div style="font-size:44px;margin-bottom:12px">🔒</div><h3 style="font-weight:800;font-size:17px;margin-bottom:8px">Premium-Feature</h3><p style="color:#64748b;font-size:13px;margin-bottom:20px;line-height:1.6">'+msg+'</p></div>'));
+  var b=document.createElement('button');b.className='btn-blue';b.style.cssText='width:100%';b.textContent='💎 Premium freischalten';b.onclick=function(){S.premModal=true;render();};
+  w.appendChild(b);
+  return w;
+}
+
+// ==================== PROBE KLAUSUREN (Premium) ====================
+// Blank placeholders — Oliver uploads PDFs later by adding entries to these
+// objects, e.g. ABITUR_KA_FILES['math']=[{title:'Abitur 2024 NRW LK', url:'...'}]
+var ABITUR_KA_FILES = {};
+var KLAUSUR_FILES = {};
+
+function klSubjectPicker(onPick){
+  var grid=mk('<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"></div>');
+  SUBJECTS.forEach(function(sub){
+    var c=mk('<div class="card" style="padding:16px;cursor:pointer;text-align:center"><div style="font-size:28px;margin-bottom:6px">'+sub.icon+'</div><div style="font-weight:700;font-size:13px">'+sub.name+'</div></div>');
+    c.onclick=function(){onPick(sub);};
+    grid.appendChild(c);
+  });
+  return grid;
+}
+function klBackBtn(label,fn){
+  var b=document.createElement('button');b.style.cssText='background:none;border:none;cursor:pointer;font-size:13px;font-weight:700;color:#7c3aed;margin-bottom:14px;padding:0';b.textContent=label;b.onclick=fn;return b;
+}
+function klFileList(files){
+  if(!files||!files.length){
+    return mk('<div style="text-align:center;padding:40px 20px;color:#94a3b8"><div style="font-size:36px;margin-bottom:10px">📂</div><div style="font-size:13px">Noch keine Klausuren hochgeladen.<br>Schau bald wieder vorbei!</div></div>');
+  }
+  var list=document.createElement('div');
+  files.forEach(function(f){
+    var c=mk('<div class="card" style="padding:14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="font-weight:600;font-size:13px">📄 '+f.title+'</span></div>');
+    var a=document.createElement('a');a.href=f.url;a.target='_blank';a.rel='noopener';a.style.cssText='color:#7c3aed;font-weight:700;font-size:12px;text-decoration:none;white-space:nowrap';a.textContent='Öffnen →';
+    c.appendChild(a);list.appendChild(c);
+  });
+  return list;
+}
+function buildKlausurenSection(){
+  var w=document.createElement('div');
+  var typeRow=mk('<div style="display:flex;gap:8px;margin-bottom:16px"></div>');
+  [['abiturka','🎓 Abitur KA'],['klausur','📝 Klausur']].forEach(function(t){
+    var active=S.klausurenType===t[0];
+    var b=document.createElement('button');
+    b.style.cssText='flex:1;padding:10px;border-radius:10px;border:none;font-weight:700;font-size:13px;cursor:pointer;background:'+(active?'#7c3aed':'#f1f5f9')+';color:'+(active?'#fff':'#64748b');
+    b.textContent=t[1];
+    b.onclick=function(){S.klausurenType=t[0];S.klausurenSubj=null;S.klausurenTopic=null;render();};
+    typeRow.appendChild(b);
+  });
+  w.appendChild(typeRow);
+
+  if(S.klausurenType==='abiturka'){
+    if(!S.klausurenSubj){
+      w.appendChild(mk('<div style="font-size:11px;font-weight:700;color:#94a3b8;margin-bottom:10px">FACH WÄHLEN</div>'));
+      w.appendChild(klSubjectPicker(function(sub){S.klausurenSubj=sub.id;render();}));
+    } else {
+      var sub=SUBJECTS.filter(function(s){return s.id===S.klausurenSubj;})[0];
+      w.appendChild(klBackBtn('← Fach wechseln',function(){S.klausurenSubj=null;render();}));
+      w.appendChild(mk('<h3 style="font-weight:800;font-size:16px;margin-bottom:12px">🎓 Abitur-Klausuren · '+sub.name+'</h3>'));
+      w.appendChild(klFileList(ABITUR_KA_FILES[sub.id]));
+    }
+  } else {
+    if(!S.klausurenSubj){
+      w.appendChild(mk('<div style="font-size:11px;font-weight:700;color:#94a3b8;margin-bottom:10px">FACH WÄHLEN</div>'));
+      w.appendChild(klSubjectPicker(function(sub){S.klausurenSubj=sub.id;render();}));
+    } else if(!S.klausurenTopic){
+      var sub2=SUBJECTS.filter(function(s){return s.id===S.klausurenSubj;})[0];
+      w.appendChild(klBackBtn('← Fach wechseln',function(){S.klausurenSubj=null;render();}));
+      w.appendChild(mk('<h3 style="font-weight:800;font-size:16px;margin-bottom:12px">Thema wählen · '+sub2.name+'</h3>'));
+      var tl=document.createElement('div');
+      sub2.topics.forEach(function(topic){
+        var c=mk('<div class="card" style="padding:14px;margin-bottom:8px;cursor:pointer;display:flex;justify-content:space-between;align-items:center"><span style="font-weight:600;font-size:13px">'+topic.title+'</span><span style="color:#94a3b8">›</span></div>');
+        c.onclick=(function(tp){return function(){S.klausurenTopic=tp.id;render();};})(topic);
+        tl.appendChild(c);
+      });
+      w.appendChild(tl);
+    } else {
+      var sub3=SUBJECTS.filter(function(s){return s.id===S.klausurenSubj;})[0];
+      var topic3=sub3.topics.filter(function(t){return t.id===S.klausurenTopic;})[0];
+      w.appendChild(klBackBtn('← Thema wechseln',function(){S.klausurenTopic=null;render();}));
+      w.appendChild(mk('<h3 style="font-weight:800;font-size:16px;margin-bottom:12px">📝 Klausuren · '+sub3.name+' · '+(topic3?topic3.title:'')+'</h3>'));
+      w.appendChild(klFileList(KLAUSUR_FILES[sub3.id+'_'+S.klausurenTopic]));
+    }
+  }
+  return w;
+}
+
+
 // ==================== FLASHCARDS ====================
 function buildCards(){
   var d=document.createElement('div');d.style.cssText='padding:16px 18px';
-  var fc=FLASHCARDS[S.fcIdx%FLASHCARDS.length];
+  var fcRealIdx=S.fcIdx%FLASHCARDS.length;
+  var fc=FLASHCARDS[fcRealIdx];
+  if(S.cardsTodayDate!==todayStr()){S.cardsToday=[];S.cardsTodayDate=todayStr();}
+  var learnedToday=S.cardsToday.length;
+  var dueToday=Math.max(0,FLASHCARDS.length-learnedToday);
   var sr=mk('<div style="display:flex;gap:8px;margin-bottom:16px"></div>');
-  [[String(S.fcIdx%FLASHCARDS.length+1)+'/'+FLASHCARDS.length,'Karten','🔁'],['8','Heute gelernt','✅'],['4','Fällig','⏰']].forEach(function(x){var c=mk('<div class="card" style="flex:1;padding:10px;text-align:center"></div>');c.innerHTML='<div style="font-size:18px">'+x[2]+'</div><div style="font-weight:800;font-size:13px;margin-top:2px">'+x[0]+'</div><div style="font-size:10px;color:#94a3b8">'+x[1]+'</div>';sr.appendChild(c);});
+  [[String(fcRealIdx+1)+'/'+FLASHCARDS.length,'Karten','🔁'],[''+learnedToday,'Heute gelernt','✅'],[''+dueToday,'Fällig','⏰']].forEach(function(x){var c=mk('<div class="card" style="flex:1;padding:10px;text-align:center"></div>');c.innerHTML='<div style="font-size:18px">'+x[2]+'</div><div style="font-weight:800;font-size:13px;margin-top:2px">'+x[0]+'</div><div style="font-size:10px;color:#94a3b8">'+x[1]+'</div>';sr.appendChild(c);});
   d.appendChild(sr);
   var cardH=200;var outer=document.createElement('div');outer.className='flip-container';outer.style.cssText='height:'+cardH+'px;cursor:pointer;margin-bottom:16px;position:relative';outer.title='Tippen zum Umdrehen';
   var inner=document.createElement('div');inner.className='flipper'+(S.fcFlipped?' flipped':'');inner.style.cssText='width:100%;height:'+cardH+'px';
@@ -1230,7 +1703,12 @@ function buildCards(){
   inner.appendChild(front);inner.appendChild(back);outer.appendChild(inner);outer.onclick=function(){S.fcFlipped=!S.fcFlipped;render();};d.appendChild(outer);
   if(S.fcFlipped){
     var btns=mk('<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px"></div>');
-    [['❌','Nochmal','#fee2e2','#dc2626'],['😐','Fast','#fef3c7','#d97706'],['✅','Gewusst','#dcfce7','#16a34a']].forEach(function(x){var b=document.createElement('button');b.style.cssText='padding:12px 8px;border-radius:12px;border:none;background:'+x[2]+';color:'+x[3]+';font-weight:700;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px';b.innerHTML='<span style="font-size:20px">'+x[0]+'</span><span>'+x[1]+'</span>';b.onclick=function(){S.fcIdx++;S.fcFlipped=false;render();};btns.appendChild(b);});d.appendChild(btns);
+    [['❌','Nochmal','#fee2e2','#dc2626'],['😐','Fast','#fef3c7','#d97706'],['✅','Gewusst','#dcfce7','#16a34a']].forEach(function(x){var b=document.createElement('button');b.style.cssText='padding:12px 8px;border-radius:12px;border:none;background:'+x[2]+';color:'+x[3]+';font-weight:700;font-size:13px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px';b.innerHTML='<span style="font-size:20px">'+x[0]+'</span><span>'+x[1]+'</span>';b.onclick=function(){
+      if(S.flashcardsReviewed.indexOf(fcRealIdx)<0)S.flashcardsReviewed.push(fcRealIdx);
+      if(S.cardsToday.indexOf(fcRealIdx)<0)S.cardsToday.push(fcRealIdx);
+      recordActivity(2);
+      S.fcIdx++;S.fcFlipped=false;render();
+    };btns.appendChild(b);});d.appendChild(btns);
   } else {var nb=mk('<div style="display:flex;gap:10px;margin-bottom:16px"></div>');var pv=document.createElement('button');pv.className='btn-gray';pv.style.flex='1';pv.textContent='← Zurück';pv.onclick=function(){if(S.fcIdx>0)S.fcIdx--;S.fcFlipped=false;render();};var nx=document.createElement('button');nx.className='btn-blue';nx.style.flex='1';nx.textContent='Weiter →';nx.onclick=function(){S.fcIdx++;S.fcFlipped=false;render();};nb.appendChild(pv);nb.appendChild(nx);d.appendChild(nb);}
   var aiC=mk('<div style="background:linear-gradient(135deg,#f5f3ff,#ede9fe);border-radius:14px;padding:16px;border:2px solid #c4b5fd"></div>');
   aiC.innerHTML='<div style="font-weight:700;font-size:14px;margin-bottom:4px">🤖 Weitere Karten generieren</div><div style="font-size:13px;color:#64748b;margin-bottom:10px">KI erstellt personalisierte Karten für jedes Thema</div>';
@@ -1275,7 +1753,7 @@ function sendAI(text){
     else if(t.indexOf('meiose')>=0||t.indexOf('bio')>=0||t.indexOf('genetik')>=0||t.indexOf('dna')>=0||t.indexOf('evolution')>=0) reply=AI_REPLIES.bio;
     else if(t.indexOf('photo')>=0||t.indexOf('physik')>=0||t.indexOf('newton')>=0||t.indexOf('quanten')>=0) reply=AI_REPLIES.phy;
     else reply=AI_REPLIES.default;
-    S.aiMsgs.push({role:'ai',text:reply});S.xp+=5;render();
+    S.aiMsgs.push({role:'ai',text:reply});recordActivity(5);render();
     setTimeout(function(){var el=document.getElementById('ai-msgs');if(el)el.scrollTop=99999;},60);
   },800);
 }
@@ -1283,7 +1761,7 @@ function sendAI(text){
 // ==================== PLANNER ====================
 function buildPlan(){
   var d=document.createElement('div');d.style.cssText='padding:16px 18px';
-  var abiY=parseInt(S.ob.year||'2025');var today=new Date();var abiDate=new Date(abiY,4,1);
+  var abiY=parseInt(S.ob.year||'2027');var today=new Date();var abiDate=new Date(abiY,4,1);
   var daysLeft=Math.max(0,Math.ceil((abiDate-today)/86400000));
   var cd=document.createElement('div');cd.style.cssText='background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;border-radius:18px;padding:20px;margin-bottom:16px;text-align:center';
   cd.innerHTML='<div style="font-size:11px;opacity:.75;margin-bottom:4px">⏰ Countdown bis Abitur '+abiY+'</div><div style="font-size:54px;font-weight:900;line-height:1">'+daysLeft+'</div><div style="font-size:13px;opacity:.8;margin-top:4px">Tage · '+Math.floor(daysLeft/7)+' Wochen</div>';
@@ -1328,16 +1806,29 @@ function buildExams(){
 function buildProg(){
   var d=document.createElement('div');d.style.cssText='padding:16px 18px';
   var sg=mk('<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>');
-  [['🔥','12 Tage','Streak'],['⭐','3.480','Gesamt-XP'],['📚','24','Themen gelernt'],['✏️',''+ALL_QUIZ.length+' verf.','Aufgaben'],['🃏',FLASHCARDS.length+' Karten','Bibliothek'],['⏱️','48h','Lernzeit']].forEach(function(x){var c=mk('<div class="card" style="padding:13px;display:flex;align-items:center;gap:10px"></div>');c.innerHTML='<div style="font-size:26px">'+x[0]+'</div><div><div style="font-weight:800;font-size:16px">'+x[1]+'</div><div style="font-size:11px;color:#94a3b8">'+x[2]+'</div></div>';sg.appendChild(c);});
+  var studyHours=(S.studySeconds/3600).toFixed(1);
+  [['🔥',S.streak+' Tage','Streak'],['⭐',S.xp.toLocaleString('de-DE'),'Gesamt-XP'],['📚',''+S.topicsLearned.length,'Themen gelernt'],['✏️',''+ALL_QUIZ.length+' verf.','Aufgaben'],['🃏',FLASHCARDS.length+' Karten','Bibliothek'],['⏱️',studyHours+'h','Lernzeit']].forEach(function(x){var c=mk('<div class="card" style="padding:13px;display:flex;align-items:center;gap:10px"></div>');c.innerHTML='<div style="font-size:26px">'+x[0]+'</div><div><div style="font-weight:800;font-size:16px">'+x[1]+'</div><div style="font-size:11px;color:#94a3b8">'+x[2]+'</div></div>';sg.appendChild(c);});
   d.appendChild(sg);
   var hmh=document.createElement('h3');hmh.style.cssText='font-weight:700;font-size:15px;margin-bottom:10px';hmh.textContent='📅 Lernaktivität';d.appendChild(hmh);
   var hm=mk('<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:18px"></div>');
   var cols=['#e2e8f0','#bfdbfe','#93c5fd','#60a5fa','#1d4ed8'];
-  for(var i=0;i<35;i++){var v=Math.random();var ci=v>0.8?4:(v>0.6?3:(v>0.4?2:(v>0.2?1:0)));var col2=S.dark?(ci===0?'#1e293b':cols[ci]):cols[ci];var dot=document.createElement('div');dot.className='hm-dot';dot.style.background=col2;hm.appendChild(dot);}
+  for(var i=34;i>=0;i--){
+    var dd=new Date();dd.setDate(dd.getDate()-i);
+    var key=todayStr(dd);
+    var entry=S.activityLog[key];
+    var actions=entry?entry.actions:0;
+    var ci=actions===0?0:(actions<2?1:(actions<4?2:(actions<7?3:4)));
+    var col2=S.dark?(ci===0?'#1e293b':cols[ci]):cols[ci];
+    var dot=document.createElement('div');dot.className='hm-dot';dot.style.background=col2;dot.title=key+': '+actions+' Aktionen';
+    hm.appendChild(dot);
+  }
   d.appendChild(hm);
   var sph=document.createElement('h3');sph.style.cssText='font-weight:700;font-size:15px;margin-bottom:10px';sph.textContent='Fortschritt nach Fach';d.appendChild(sph);
-  var pvs=[80,62,45,38,72,28,55,20];
-  SUBJECTS.slice(0,8).forEach(function(sub,i){var p=pvs[i]||30;var c=document.createElement('div');c.className='card';c.style.cssText='padding:12px 14px;margin-bottom:8px';c.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-weight:600;font-size:13px">'+sub.icon+' '+sub.name+'</span><span style="font-size:12px;font-weight:700;color:'+sub.col+'">'+p+'%</span></div><div class="pbar"><div class="pfill" style="width:'+p+'%;background:'+sub.col+'"></div></div>';d.appendChild(c);});
+  SUBJECTS.slice(0,8).forEach(function(sub){
+    var learned=S.topicsLearned.filter(function(k){return k.indexOf(sub.id+'_')===0;}).length;
+    var p=sub.topics.length?Math.round(learned/sub.topics.length*100):0;
+    var c=document.createElement('div');c.className='card';c.style.cssText='padding:12px 14px;margin-bottom:8px';c.innerHTML='<div style="display:flex;justify-content:space-between;margin-bottom:6px"><span style="font-weight:600;font-size:13px">'+sub.icon+' '+sub.name+'</span><span style="font-size:12px;font-weight:700;color:'+sub.col+'">'+p+'%</span></div><div class="pbar"><div class="pfill" style="width:'+p+'%;background:'+sub.col+'"></div></div>';d.appendChild(c);
+  });
   return d;
 }
 
@@ -1368,13 +1859,24 @@ function buildProfileModal(){
       card.appendChild(hd2);card.appendChild(body);box.appendChild(card);
     });
   } else if(S.profileTab==='settings'){
+    var isPremU=!!(S.user&&S.user.premium);
+    var premBox=document.createElement('div');
+    premBox.style.cssText='border-radius:14px;padding:16px;margin-bottom:18px;'+(isPremU?'background:#dcfce7':'background:linear-gradient(135deg,#1e3a8a,#2563eb)');
+    if(isPremU){
+      premBox.innerHTML='<div style="font-weight:800;font-size:14px;color:#15803d;margin-bottom:2px">💎 Du bist Premium-Mitglied</div><div style="font-size:12px;color:#166534">Plan: '+(S.user.premiumPlan==='annual'?'Jahresabo (30€/Jahr)':'Monatsabo (3€/Monat)')+'</div>';
+    } else {
+      premBox.innerHTML='<div style="font-weight:800;font-size:15px;color:#fff;margin-bottom:4px">💎 Werde Premium-Mitglied</div><div style="font-size:12px;color:#dbeafe;margin-bottom:12px;line-height:1.5">Unbegrenzte Aufgaben, Probe-Klausuren, alle Lerneinheiten & KI-Funktionen – ab 2,50€/Monat</div>';
+      var upBtn2=document.createElement('button');upBtn2.style.cssText='width:100%;padding:10px;border-radius:10px;border:none;background:#fff;color:#1d4ed8;font-weight:800;font-size:13px;cursor:pointer';upBtn2.textContent='Jetzt upgraden';upBtn2.onclick=function(){S.premModal=true;S.profileModal=false;render();};
+      premBox.appendChild(upBtn2);
+    }
+    box.appendChild(premBox);
     var lbl=document.createElement('label');lbl.style.cssText='font-size:13px;font-weight:600;display:block;margin-bottom:6px';lbl.textContent='Bundesland';box.appendChild(lbl);
     var sel=document.createElement('select');sel.className='wide-inp';BL_NAMES.forEach(function(bl){var opt=document.createElement('option');opt.value=bl;opt.textContent=bl;if(S.user&&S.user.bundesland===bl)opt.selected=true;sel.appendChild(opt);});box.appendChild(sel);
-    var sv=document.createElement('button');sv.className='btn-blue';sv.style.cssText='width:100%;margin-top:12px';sv.textContent='Speichern';sv.onclick=function(){if(S.user)S.user.bundesland=sel.value;S.profileModal=false;render();};box.appendChild(sv);
-    var lo=document.createElement('button');lo.className='btn-gray';lo.style.cssText='width:100%;margin-top:8px';lo.textContent='🚪 Abmelden';lo.onclick=async function(){if(sb)await sb.auth.signOut();S.user=null;S.profileModal=false;go('landing');};box.appendChild(lo);
+    var sv=document.createElement('button');sv.className='btn-blue';sv.style.cssText='width:100%;margin-top:12px';sv.textContent='Speichern';sv.onclick=function(){if(S.user)S.user.bundesland=sel.value;saveProfileNow();S.profileModal=false;render();};box.appendChild(sv);
+    var lo=document.createElement('button');lo.className='btn-gray';lo.style.cssText='width:100%;margin-top:8px';lo.textContent='🚪 Abmelden';lo.onclick=async function(){if(profileSyncTimer){clearTimeout(profileSyncTimer);profileSyncTimer=null;}if(sb)await sb.auth.signOut();S.user=null;profileLoaded=false;S.profileModal=false;go('landing');};box.appendChild(lo);
   } else {
     var sg=document.createElement('div');sg.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px';
-    [['Streak','12 Tage'],['XP','3.480'],['Themen','24'],['Karten',''+FLASHCARDS.length]].forEach(function(x){sg.innerHTML+='<div class="card" style="padding:13px;text-align:center"><div style="font-weight:800;font-size:18px">'+x[1]+'</div><div style="font-size:11px;color:#94a3b8">'+x[0]+'</div></div>';});
+    [['Streak',S.streak+' Tage'],['XP',S.xp.toLocaleString('de-DE')],['Themen',''+S.topicsLearned.length],['Karten',''+FLASHCARDS.length]].forEach(function(x){sg.innerHTML+='<div class="card" style="padding:13px;text-align:center"><div style="font-weight:800;font-size:18px">'+x[1]+'</div><div style="font-size:11px;color:#94a3b8">'+x[0]+'</div></div>';});
     box.appendChild(sg);
   }
   overlay.appendChild(box);overlay.onclick=function(e){if(e.target===overlay){S.profileModal=false;render();}};return overlay;
@@ -1383,13 +1885,29 @@ function buildProfileModal(){
 function buildPremModal(){
   var overlay=document.createElement('div');overlay.className='modal-bg';overlay.style.zIndex='200';
   var box=document.createElement('div');box.className='modal-box';
-  box.innerHTML='<div style="text-align:center;margin-bottom:16px"><div style="font-size:44px">&#128142;</div><h2 style="font-weight:800;font-size:19px;margin:8px 0 4px">Jetzt Abitur! Premium</h2><p style="color:#64748b;font-size:13px">Schalte alle Features frei</p></div>';
-  ['Korrekter Abi-Rechner (alle 16 BL)','Vollstaendige Lerneinheiten','Unbegrenzte KI-Gespraeche','Pruefungsarchiv + Musterloesungen','KI-Lernplaene','Keine Werbung'].forEach(function(f){box.innerHTML+='<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><span style="color:#16a34a;font-weight:800">v</span><span style="font-size:14px">'+f+'</span></div>';});
-  var b1=document.createElement('button');b1.className='btn-blue';b1.style.cssText='width:100%;margin-top:14px;margin-bottom:8px';b1.textContent='4,99 Euro/Monat starten';b1.onclick=function(){if(S.user)S.user.premium=true;S.premModal=false;render();};
+  box.innerHTML='<div style="text-align:center;margin-bottom:14px"><div style="font-size:44px">💎</div><h2 style="font-weight:800;font-size:19px;margin:8px 0 4px">Jetzt Abitur! Premium</h2><p style="color:#64748b;font-size:13px;margin:0">Unbegrenzt lernen. Ohne Limits ans Abitur.</p></div>';
+
+  var featBox=document.createElement('div');featBox.style.cssText='margin-bottom:16px';
+  ['Unbegrenzte AFB-Aufgaben (statt 15/Tag)','Probe-Klausuren: Original-Abitur-KA & Klausuren nach Thema','Korrekter Abi-Rechner für alle 16 Bundesländer','Unbegrenzte KI-Tutor-Gespräche & KI-Lernpläne','Vollständige Lerneinheiten in allen Fächern','Keine Werbung'].forEach(function(f){featBox.innerHTML+='<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:8px"><span style="color:#16a34a;font-weight:800;flex-shrink:0">✓</span><span style="font-size:13px;line-height:1.4">'+f+'</span></div>';});
+  box.appendChild(featBox);
+
+  var plans=document.createElement('div');plans.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px';
+  var annualSel=S.premSelectedPlan==='annual';
+  var annual=mk('<div style="position:relative;border:2px solid '+(annualSel?'#1d4ed8':'#e2e8f0')+';background:'+(annualSel?'#eff6ff':'transparent')+';border-radius:14px;padding:16px 10px 12px;cursor:pointer;text-align:center"><div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;font-size:9px;font-weight:800;padding:3px 10px;border-radius:100px;white-space:nowrap">BESTES ANGEBOT</div><div style="font-weight:900;font-size:24px;margin-top:6px">30€</div><div style="font-size:11px;color:#64748b">pro Jahr</div><div style="font-size:11px;color:#16a34a;font-weight:700;margin-top:2px">≈ 2,50€/Monat</div></div>');
+  var monthlySel=S.premSelectedPlan==='monthly';
+  var monthly=mk('<div style="border:2px solid '+(monthlySel?'#1d4ed8':'#e2e8f0')+';background:'+(monthlySel?'#eff6ff':'transparent')+';border-radius:14px;padding:16px 10px 12px;cursor:pointer;text-align:center"><div style="font-weight:900;font-size:24px;margin-top:15px">3€</div><div style="font-size:11px;color:#64748b">pro Monat</div><div style="font-size:11px;color:transparent;margin-top:2px">·</div></div>');
+  annual.onclick=function(){S.premSelectedPlan='annual';render();};
+  monthly.onclick=function(){S.premSelectedPlan='monthly';render();};
+  plans.appendChild(annual);plans.appendChild(monthly);box.appendChild(plans);
+
+  var b1=document.createElement('button');b1.className='btn-blue';b1.style.cssText='width:100%;margin-bottom:8px';
+  b1.textContent=annualSel?'Jahresplan starten – 30€/Jahr':'Monatsplan starten – 3€/Monat';
+  b1.onclick=function(){ if(S.user){ S.user.premium=true; S.user.premiumPlan=S.premSelectedPlan; } S.premModal=false; render(); };
   var cl=document.createElement('button');cl.style.cssText='display:block;margin:0 auto;background:none;border:none;color:#94a3b8;cursor:pointer;font-size:13px';cl.textContent='Nein danke';cl.onclick=function(){S.premModal=false;render();};
   box.appendChild(b1);box.appendChild(cl);
   overlay.appendChild(box);overlay.onclick=function(e){if(e.target===overlay){S.premModal=false;render();}};return overlay;
 }
+
 
 function buildGradeTableModal(){
   var overlay=document.createElement('div');overlay.className='modal-bg';overlay.style.zIndex='200';
@@ -1423,20 +1941,48 @@ function buildGradeTableModal(){
   return overlay;
 }
 
+async function hydrateFromSession(session){
+  var u=session.user;
+  S.user={id:u.id,name:(u.user_metadata&&u.user_metadata.full_name)||u.email.split('@')[0],email:u.email,bundesland:'',premium:false};
+  var row=await fetchProfile(u.id);
+  profileLoaded=true;
+  if(row && row.bundesland){
+    applyProfileRow(row);
+    initCalcDefaults();
+    S.page='main';
+  } else {
+    // Logged in (e.g. via Google) but never finished onboarding yet
+    S.page='onboarding';
+  }
+}
+
 (async function initSession(){
   try{
     if(sb){
       var s=await sb.auth.getSession();
       if(s.data.session){
-        var u=s.data.session.user;
-        S.user={id:u.id,name:(u.user_metadata&&u.user_metadata.full_name)||u.email.split('@')[0],email:u.email,bundesland:'',premium:false};
-        S.page='main';
+        await hydrateFromSession(s.data.session);
       }
     }
   }catch(e){
     console.warn('Session-Check fehlgeschlagen (evtl. offline):', e);
   }
   render();
+
+  // Keep the app in sync if the session changes in another tab, refreshes, or completes
+  // an OAuth redirect after this initial load.
+  if(sb){
+    sb.auth.onAuthStateChange(async function(event,session){
+      if(event==='SIGNED_OUT'){
+        if(S.user){ S.user=null; profileLoaded=false; S.page='landing'; render(); }
+        return;
+      }
+      if(session && (!S.user || S.user.id!==session.user.id) && !profileLoaded){
+        await hydrateFromSession(session);
+        render();
+      }
+    });
+  }
 })();
 </script>
 </body>
