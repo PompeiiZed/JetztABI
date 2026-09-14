@@ -162,6 +162,7 @@ var S = {
   activityLog:{}, topicsLearned:[], flashcardsReviewed:[], cardsToday:[], cardsTodayDate:'', studySeconds:0,
   qDailyCount:0, qDailyDate:'', premSelectedPlan:'annual',
   uebenSection:'afb', klausurenType:'abiturka', klausurenSubj:null, klausurenTopic:null,
+  uniAppTab:'test', uniTestResult:null, uniDegreeOpen:{}, cvFileName:'',
 };
 function calcLevel(){ return Math.floor(S.xp/1000)+1; }
 function isDemo(){ return !!(S.user && S.user.demo); }
@@ -1091,7 +1092,7 @@ function buildMain(){
   var bg=S.dark?'#0f172a':'#f8fafc';
   var wrap=document.createElement('div');wrap.className='app-shell';wrap.style.cssText='background:'+bg;
   var tb=document.createElement('div');tb.className='app-topbar';tb.style.cssText='background:'+bg;
-  var titles={home:'🏠 Dashboard',calc:'📊 Abi-Rechner',subs:'📚 Fächer',quiz:'✏️ Üben',cards:'🃏 Karteikarten',ai:'🤖 KI-Tutor',plan:'📅 Lernplan',exams:'📄 Prüfungen',prog:'📈 Fortschritt'};
+  var titles={home:'🏠 Dashboard',calc:'📊 Abi-Rechner',subs:'📚 Fächer',quiz:'✏️ Üben',cards:'🃏 Karteikarten',ai:'🤖 KI-Tutor',plan:'📅 Lernplan',exams:'📄 Prüfungen',prog:'📈 Fortschritt',uniapp:'🎓 Studium & Bewerbung'};
   var tEl=document.createElement('div');tEl.style.cssText='font-weight:800;font-size:16px';tEl.textContent=titles[S.tab]||'Jetzt Abitur!';
   var topR=mk('<div style="display:flex;gap:8px;align-items:center"></div>');
   topR.appendChild(mk('<div style="display:flex;align-items:center;gap:4px;background:'+(S.dark?'#1e293b':'#fff')+';padding:6px 12px;border-radius:100px;font-size:12px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.08)">🔥 '+S.streak+'</div>'));
@@ -1113,6 +1114,7 @@ function buildMain(){
   if(S.tab==='plan')  content.appendChild(buildPlan());
   if(S.tab==='exams') content.appendChild(buildExams());
   if(S.tab==='prog')  content.appendChild(buildProg());
+  if(S.tab==='uniapp') content.appendChild(buildUniApp());
   wrap.appendChild(content);
   wrap.appendChild(buildNav());
   if(S.premModal) wrap.appendChild(buildPremModal());
@@ -1149,6 +1151,10 @@ function buildHome(){
   if(res){gd.appendChild(mk('<div style="background:rgba(255,255,255,.12);border-radius:8px;padding:5px 10px;font-size:12px">Block I: <b>'+res.blockI+'/600</b></div>'));gd.appendChild(mk('<div style="background:rgba(255,255,255,.12);border-radius:8px;padding:5px 10px;font-size:12px">Block II: <b>'+res.blockII+'/300</b></div>'));gd.appendChild(mk('<div style="background:rgba(255,255,255,.12);border-radius:8px;padding:5px 10px;font-size:12px">Gesamt: <b>'+res.total+'/900</b></div>'));}
   else{gd.appendChild(mk('<div style="font-size:12px;opacity:.8">Noten im Rechner eintragen →</div>'));}
   gc.appendChild(gd);gc.onclick=function(){setTab('calc');};d.appendChild(gc);
+  var uniCard=document.createElement('div');uniCard.style.cssText='background:linear-gradient(135deg,#059669,#0d9488);color:#fff;border-radius:18px;padding:18px 20px;margin-bottom:16px;cursor:pointer;display:flex;align-items:center;gap:14px';
+  uniCard.innerHTML='<div style="font-size:34px">🎓</div><div style="flex:1"><div style="font-weight:800;font-size:15px;margin-bottom:2px">Studium & Bewerbung</div><div style="font-size:12px;opacity:.9">Interessentest, Studiengänge, Stipendien, Bewerbung bei Uni-Assist & Hochschulstart</div></div><div style="font-size:20px">→</div>';
+  uniCard.onclick=function(){setTab('uniapp');};
+  d.appendChild(uniCard);
   var sg=mk('<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px"></div>');
   var todayXp=(S.activityLog[todayStr()]&&S.activityLog[todayStr()].xp)||0;
   var dueCards=Math.max(0,FLASHCARDS.length-S.cardsToday.length);
@@ -1159,6 +1165,280 @@ function buildHome(){
   [['📊','Noten eintragen','calc','#1d4ed8'],['📚','Thema lernen','subs','#7c3aed'],['✏️','AFB Aufgaben','quiz','#059669'],['🤖','KI fragen','ai','#d97706']].forEach(function(x){var b=document.createElement('button');b.style.cssText='padding:14px;border-radius:12px;border:none;background:'+x[3]+'18;color:'+x[3]+';cursor:pointer;font-weight:700;font-size:13px;display:flex;flex-direction:column;align-items:center;gap:4px;width:100%';b.innerHTML='<span style="font-size:26px">'+x[0]+'</span><span>'+x[1]+'</span>';b.onclick=function(){setTab(x[2]);};qa.appendChild(b);});
   d.appendChild(qa);
   return d;
+}
+
+// ==================== UNI-BEWERBUNG (Studium & Bewerbung) ====================
+var RIASEC_QUESTIONS=[
+  {id:'r1',dim:'R',text:'Ich arbeite gerne mit den Händen, Werkzeugen oder Maschinen.'},
+  {id:'r2',dim:'R',text:'Ich bin gerne draußen oder körperlich aktiv statt nur am Schreibtisch zu sitzen.'},
+  {id:'r3',dim:'R',text:'Ich repariere oder baue gerne Dinge selbst.'},
+  {id:'i1',dim:'I',text:'Ich stelle gerne Fragen und will Dinge genau verstehen, bevor ich sie akzeptiere.'},
+  {id:'i2',dim:'I',text:'Ich löse gerne komplizierte Probleme oder Rätsel systematisch.'},
+  {id:'i3',dim:'I',text:'Naturwissenschaftliche oder mathematische Themen faszinieren mich.'},
+  {id:'a1',dim:'A',text:'Ich drücke mich gerne kreativ aus (Musik, Schreiben, Design, Kunst).'},
+  {id:'a2',dim:'A',text:'Mir ist wichtig, Dinge auf meine eigene, originelle Art zu tun.'},
+  {id:'a3',dim:'A',text:'Ich mag Situationen ohne feste Regeln, in denen ich frei gestalten kann.'},
+  {id:'s1',dim:'S',text:'Ich helfe oder unterstütze anderen Menschen gerne persönlich.'},
+  {id:'s2',dim:'S',text:'Ich kann gut zuhören und mich in andere hineinversetzen.'},
+  {id:'s3',dim:'S',text:'Teamarbeit und der Austausch mit anderen motivieren mich.'},
+  {id:'e1',dim:'E',text:'Ich übernehme gerne die Führung in einer Gruppe.'},
+  {id:'e2',dim:'E',text:'Ich kann andere gut überzeugen oder für Ideen begeistern.'},
+  {id:'e3',dim:'E',text:'Wettbewerb, Verhandeln und Ziele erreichen reizen mich.'},
+  {id:'c1',dim:'C',text:'Ich arbeite gerne strukturiert nach klaren Plänen und Regeln.'},
+  {id:'c2',dim:'C',text:'Genauigkeit und Ordnung sind mir bei Aufgaben sehr wichtig.'},
+  {id:'c3',dim:'C',text:'Ich behalte gerne den Überblick über Zahlen, Daten oder Listen.'},
+];
+var RIASEC_INFO={
+  R:{name:'Realistisch',short:'praktisch & handwerklich-technisch'},
+  I:{name:'Investigativ',short:'forschend & analytisch'},
+  A:{name:'Künstlerisch',short:'kreativ & individuell'},
+  S:{name:'Sozial',short:'hilfsbereit & kommunikativ'},
+  E:{name:'Unternehmerisch',short:'führend & überzeugend'},
+  C:{name:'Konventionell',short:'organisiert & genau'}
+};
+var RIASEC_COMBOS={
+  RI:{desc:'Du verbindest praktisches Geschick mit analytischem Denken – die klassische Ingenieurs- und Naturwissenschafts-Kombination.',studies:['Maschinenbau','Elektrotechnik','Physik','Bauingenieurwesen'],jobs:['Ingenieur/in','Techniker/in','Forscher/in im technischen Bereich']},
+  RA:{desc:'Handwerkliches Geschick trifft auf Gestaltungssinn – du willst Dinge bauen, die auch gut aussehen.',studies:['Architektur','Produktdesign','Innenarchitektur'],jobs:['Architekt/in','Produktdesigner/in','Handwerksmeister/in mit Gestaltungsfokus']},
+  RS:{desc:'Du packst gerne praktisch mit an und möchtest dabei Menschen konkret helfen.',studies:['Sportwissenschaft','Physiotherapie','Rettungsingenieurwesen'],jobs:['Physiotherapeut/in','Rettungssanitäter/in','Sportlehrer/in']},
+  RE:{desc:'Praktische Umsetzung und unternehmerisches Denken – du willst Projekte selbst leiten und realisieren.',studies:['Bauingenieurwesen','Agrarwissenschaften','Wirtschaftsingenieurwesen'],jobs:['Bauleiter/in','Landwirt/in mit Betriebsführung','Projektleiter/in Technik']},
+  RC:{desc:'Du arbeitest gerne präzise mit Technik nach klaren Vorgaben.',studies:['Vermessungswesen','Elektrotechnik','Fertigungstechnik'],jobs:['Vermessungstechniker/in','Fertigungsplaner/in','Qualitätsprüfer/in']},
+  IA:{desc:'Analytisches Denken gepaart mit Kreativität – du willst neue Ideen erforschen und originell umsetzen.',studies:['Biotechnologie','Kognitionswissenschaft','Medieninformatik'],jobs:['UX Researcher/in','Wissenschaftsjournalist/in','Innovationsmanager/in']},
+  IS:{desc:'Du willst verstehen, wie Dinge funktionieren, und dieses Wissen nutzen, um Menschen zu helfen.',studies:['Medizin','Psychologie','Public Health'],jobs:['Arzt/Ärztin','Psycholog/in','Gesundheitswissenschaftler/in']},
+  IE:{desc:'Analyse trifft auf unternehmerisches Denken – du erkennst Muster und willst daraus Entscheidungen ableiten.',studies:['Wirtschaftsinformatik','Data Science','Wirtschaftswissenschaften'],jobs:['Data Scientist','Unternehmensberater/in','Business Analyst']},
+  IC:{desc:'Systematisches, logisches Denken ist deine Stärke – du liebst klare Strukturen und exakte Lösungen.',studies:['Informatik','Mathematik','Statistik'],jobs:['Softwareentwickler/in','Data Analyst','Aktuar/in']},
+  AS:{desc:'Du willst dich kreativ ausdrücken und dabei mit oder für Menschen arbeiten.',studies:['Lehramt Kunst/Musik','Kunsttherapie','Soziale Arbeit mit kreativem Schwerpunkt'],jobs:['Kunst-/Musiklehrer/in','Kunsttherapeut/in','Sozialpädagog/in mit kreativem Angebot']},
+  AE:{desc:'Kreativität und Überzeugungskraft – du willst Ideen entwickeln und sie erfolgreich vermarkten.',studies:['Kommunikationsdesign','Marketing','Medien- und Kommunikationswissenschaft'],jobs:['Werbetexter/in','Creative Director','Social-Media-Manager/in']},
+  AC:{desc:'Du bist kreativ, arbeitest dabei aber gerne strukturiert und sorgfältig.',studies:['Mediengestaltung','Grafikdesign','Verlagswesen'],jobs:['Mediengestalter/in','Verlagslektor/in','Layouter/in']},
+  SE:{desc:'Du magst den Umgang mit Menschen und willst dabei auch Verantwortung und Führung übernehmen.',studies:['Betriebswirtschaftslehre (Personal)','Bildungsmanagement','Gesundheitsmanagement'],jobs:['Personalmanager/in','Vertriebsleiter/in','Teamleiter/in im Sozialbereich']},
+  SC:{desc:'Du hilfst gerne Menschen und arbeitest dabei am liebsten strukturiert und verlässlich.',studies:['Soziale Arbeit','Lehramt','Öffentliche Verwaltung'],jobs:['Sozialarbeiter/in','Lehrer/in','Verwaltungsfachangestellte/r']},
+  EC:{desc:'Du denkst unternehmerisch, magst dabei aber klare Zahlen, Fakten und Strukturen.',studies:['Betriebswirtschaftslehre','Wirtschaftswissenschaften','Wirtschaftsrecht'],jobs:['Unternehmensberater/in','Controller/in','Finanzanalyst/in']}
+};
+function comboKey(a,b){ var order='RIASEC'; return order.indexOf(a)<order.indexOf(b)?a+b:b+a; }
+
+var DEGREES_LIST=[
+  {icon:'🩺',name:'Medizin',nc:'Ø 1,0–1,5 (bundesweit über hochschulstart, zusätzlich Auswahlverfahren/TMS)',rating:9.5,desc:'Ausbildung zum Arzt/zur Ärztin – sehr forschungs- und praxisintensiv, lange Studiendauer (6 Jahre + Approbation), hervorragende Berufsaussichten.',specializations:['Humanmedizin','Zahnmedizin','Tiermedizin','Pharmazie']},
+  {icon:'⚖️',name:'Rechtswissenschaften (Jura)',nc:'Ø 2,0–2,8 (viele Unis zulassungsfrei, einige NC)',rating:8,desc:'Juristische Grundausbildung mit Staatsexamen; breites Berufsfeld von Anwaltschaft über Justiz bis Wirtschaft.',specializations:['Wirtschaftsrecht','Strafrecht-Schwerpunkt','Europarecht','Steuerrecht']},
+  {icon:'💼',name:'Betriebswirtschaftslehre (BWL)',nc:'Ø 2,0–3,0 (an vielen Unis zulassungsfrei)',rating:7.5,desc:'Vielseitiges Wirtschaftsstudium zu Finanzen, Marketing, Personal und Management – gute Jobchancen in fast jeder Branche.',specializations:['Marketing','Finance & Controlling','Personalmanagement (HR)','Logistik & Supply Chain']},
+  {icon:'💻',name:'Informatik',nc:'meist zulassungsfrei, an Top-Unis Ø 2,0–2,5',rating:9,desc:'Programmieren, Algorithmen und Softwareentwicklung – aktuell einer der gefragtesten Studiengänge am Arbeitsmarkt.',specializations:['Wirtschaftsinformatik','Medieninformatik','Data Science / KI','Cybersecurity']},
+  {icon:'🧠',name:'Psychologie',nc:'Ø 1,5–2,2 (sehr gefragt, hoher NC)',rating:7.5,desc:'Wissenschaftliche Erforschung von Erleben und Verhalten; nach dem Master oft Weiterbildung zur Psychotherapie nötig.',specializations:['Klinische Psychologie','Arbeits- & Organisationspsychologie','Pädagogische Psychologie','Neuropsychologie']},
+  {icon:'⚙️',name:'Maschinenbau',nc:'meist zulassungsfrei',rating:8.5,desc:'Konstruktion, Entwicklung und Produktion technischer Systeme – klassischer Ingenieursberuf mit stabiler Nachfrage.',specializations:['Fahrzeugtechnik','Energietechnik','Produktionstechnik','Mechatronik']},
+  {icon:'🔌',name:'Elektrotechnik',nc:'meist zulassungsfrei',rating:8.5,desc:'Studium rund um Strom, Schaltungen, Automatisierung und Energietechnik – sehr gute Übernahmechancen in der Industrie.',specializations:['Automatisierungstechnik','Energietechnik','Nachrichtentechnik','Mechatronik']},
+  {icon:'📈',name:'Wirtschaftswissenschaften (VWL)',nc:'Ø 2,3–3,0 (viele Unis zulassungsfrei)',rating:7,desc:'Analyse wirtschaftlicher Zusammenhänge auf gesamtgesellschaftlicher Ebene – gute Basis für Politik, Beratung und Banken.',specializations:['Internationale Wirtschaft','Wirtschaftspolitik','Ökonometrie','Entwicklungsökonomie']},
+  {icon:'🤝',name:'Soziale Arbeit',nc:'Ø 2,2–2,8',rating:6.5,desc:'Beratung und Unterstützung von Menschen in schwierigen Lebenslagen; sehr sinnstiftend, moderates Gehaltsniveau.',specializations:['Kinder- & Jugendhilfe','Suchthilfe','Schulsozialarbeit','Gesundheits- & Sozialmanagement']},
+  {icon:'📚',name:'Lehramt',nc:'variiert stark je Fach & Bundesland',rating:7.5,desc:'Ausbildung für den Schuldienst mit zwei Fächern plus Bildungswissenschaften; sicherer Arbeitsmarkt in vielen Fächern.',specializations:['Grundschule','Sekundarstufe I/II','Berufsschule','Sonderpädagogik']},
+  {icon:'🏛️',name:'Architektur',nc:'Ø 2,0–2,8, oft zusätzliche Mappe/Eignungstest',rating:6.5,desc:'Entwurf und Planung von Gebäuden und Räumen – kreativ, aber auch technisch und rechtlich anspruchsvoll.',specializations:['Innenarchitektur','Landschaftsarchitektur','Städtebau','Nachhaltiges Bauen']},
+  {icon:'🧬',name:'Biologie',nc:'Ø 2,0–2,6',rating:6,desc:'Erforschung von Lebewesen von der Zelle bis zum Ökosystem – meist Master und Promotion für gute Karrierechancen nötig.',specializations:['Molekularbiologie','Ökologie','Mikrobiologie','Biotechnologie']},
+  {icon:'🏗️',name:'Wirtschaftsingenieurwesen',nc:'meist zulassungsfrei',rating:8.5,desc:'Kombination aus Technik und Wirtschaft – vielseitig einsetzbar zwischen Produktion, Projektmanagement und Vertrieb.',specializations:['Maschinenbau-Schwerpunkt','Elektrotechnik-Schwerpunkt','Logistik','Energiewirtschaft']},
+  {icon:'📰',name:'Medien- & Kommunikationswissenschaft',nc:'Ø 2,0–2,6',rating:6,desc:'Analyse von Medien, Öffentlichkeit und Kommunikation – guter Einstieg in Journalismus, PR und Marketing.',specializations:['Journalismus','Public Relations','Medienmanagement','Digitale Medien']},
+];
+
+function buildUniApp(){
+  var d=document.createElement('div');d.style.cssText='padding:16px 18px';
+  var back=document.createElement('button');back.style.cssText='background:none;border:none;color:#1d4ed8;font-weight:700;font-size:13px;cursor:pointer;padding:0;margin-bottom:12px;display:flex;align-items:center;gap:4px';back.innerHTML='← Zurück zum Dashboard';back.onclick=function(){setTab('home');};d.appendChild(back);
+
+  var intro=document.createElement('div');intro.style.cssText='margin-bottom:16px';
+  intro.innerHTML='<h2 style="font-weight:800;font-size:19px;margin-bottom:3px">🎓 Studium & Bewerbung</h2><p style="color:#64748b;font-size:12px;margin:0">Finde dein Studienfach, informiere dich über Finanzierung und bewirb dich richtig.</p>';
+  d.appendChild(intro);
+
+  var tabDefs=[{id:'test',label:'🧭 Interessen-Test'},{id:'degrees',label:'📖 Studiengänge'},{id:'funding',label:'💰 Stipendien'},{id:'motivation',label:'✍️ Motivation'},{id:'howto',label:'📝 Bewerbung'}];
+  var tabBar=document.createElement('div');tabBar.style.cssText='display:flex;gap:6px;overflow-x:auto;margin-bottom:16px;padding-bottom:2px';
+  tabDefs.forEach(function(t){
+    var active=S.uniAppTab===t.id;
+    var b=document.createElement('button');b.style.cssText='white-space:nowrap;padding:8px 14px;border-radius:10px;border:none;font-size:12px;font-weight:700;cursor:pointer;background:'+(active?'#059669':(S.dark?'#1e293b':'#f1f5f9'))+';color:'+(active?'#fff':(S.dark?'#94a3b8':'#64748b'));
+    b.textContent=t.label;b.onclick=function(){S.uniAppTab=t.id;render();};tabBar.appendChild(b);
+  });
+  d.appendChild(tabBar);
+
+  var content=document.createElement('div');
+  if(S.uniAppTab==='test') content.appendChild(buildUniTest());
+  else if(S.uniAppTab==='degrees') content.appendChild(buildUniDegrees());
+  else if(S.uniAppTab==='funding') content.appendChild(buildUniFunding());
+  else if(S.uniAppTab==='motivation') content.appendChild(buildUniMotivation());
+  else if(S.uniAppTab==='howto') content.appendChild(buildUniHowTo());
+  d.appendChild(content);
+  return d;
+}
+
+function buildUniTest(){
+  var wrap=document.createElement('div');
+
+  if(S.uniTestResult){
+    var res=S.uniTestResult;
+    var top2=res.top2, combo=res.combo, scores=res.scores;
+    var head=document.createElement('div');head.className='card';head.style.cssText='padding:18px;margin-bottom:14px;background:linear-gradient(135deg,#059669,#0d9488);color:#fff';
+    head.innerHTML='<div style="font-size:11px;opacity:.85;margin-bottom:4px">Dein Ergebnis</div><div style="font-weight:800;font-size:20px;margin-bottom:6px">'+RIASEC_INFO[top2[0]].name+' & '+RIASEC_INFO[top2[1]].name+'</div><div style="font-size:13px;opacity:.9;line-height:1.5">'+(RIASEC_COMBOS[combo]?RIASEC_COMBOS[combo].desc:'')+'</div>';
+    wrap.appendChild(head);
+
+    var barsCard=document.createElement('div');barsCard.className='card';barsCard.style.cssText='padding:16px;margin-bottom:14px';
+    var bh=document.createElement('div');bh.style.cssText='font-weight:800;font-size:13px;margin-bottom:10px';bh.textContent='Deine Profil-Ausprägung (RIASEC)';barsCard.appendChild(bh);
+    'RIASEC'.split('').forEach(function(dim){
+      var pct=Math.round((scores[dim]/15)*100);
+      var row=document.createElement('div');row.style.cssText='margin-bottom:8px';
+      row.innerHTML='<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px"><span>'+RIASEC_INFO[dim].name+'</span><span style="color:#94a3b8">'+RIASEC_INFO[dim].short+'</span></div><div style="height:8px;background:'+(S.dark?'#334155':'#e2e8f0')+';border-radius:4px"><div style="width:'+pct+'%;height:100%;border-radius:4px;background:'+(top2.indexOf(dim)!==-1?'#059669':'#94a3b8')+'"></div></div>';
+      barsCard.appendChild(row);
+    });
+    wrap.appendChild(barsCard);
+
+    if(RIASEC_COMBOS[combo]){
+      var sg=document.createElement('div');sg.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px';
+      var c1=document.createElement('div');c1.className='card';c1.style.padding='14px';c1.innerHTML='<div style="font-weight:800;font-size:12px;margin-bottom:8px">📖 Passende Studiengänge</div>'+RIASEC_COMBOS[combo].studies.map(function(s){return '<div style="font-size:12px;padding:4px 0;border-top:1px solid '+(S.dark?'#334155':'#f1f5f9')+'">'+s+'</div>';}).join('');
+      var c2=document.createElement('div');c2.className='card';c2.style.padding='14px';c2.innerHTML='<div style="font-weight:800;font-size:12px;margin-bottom:8px">💼 Passende Berufe</div>'+RIASEC_COMBOS[combo].jobs.map(function(s){return '<div style="font-size:12px;padding:4px 0;border-top:1px solid '+(S.dark?'#334155':'#f1f5f9')+'">'+s+'</div>';}).join('');
+      sg.appendChild(c1);sg.appendChild(c2);wrap.appendChild(sg);
+    }
+    var again=document.createElement('button');again.className='btn-gray';again.style.width='100%';again.textContent='🔄 Test wiederholen';again.onclick=function(){S.uniTestResult=null;render();};wrap.appendChild(again);
+    return wrap;
+  }
+
+  var infoCard=document.createElement('div');infoCard.className='card';infoCard.style.cssText='padding:14px 16px;margin-bottom:14px;font-size:12px;line-height:1.6;color:'+(S.dark?'#94a3b8':'#64748b');
+  infoCard.innerHTML='Dieser Test basiert auf dem <b>RIASEC-Modell</b> (Holland-Code), einem der am besten erforschten Modelle der Berufs- und Studienwahl. Beantworte alle Aussagen ehrlich – am Ende erhältst du passende Studiengänge und Berufe.';
+  wrap.appendChild(infoCard);
+
+  var form=document.createElement('div');
+  RIASEC_QUESTIONS.forEach(function(q,i){
+    var qc=document.createElement('div');qc.className='card';qc.style.cssText='padding:14px 16px;margin-bottom:8px';
+    var qt=document.createElement('div');qt.style.cssText='font-size:13px;font-weight:600;margin-bottom:10px';qt.textContent=(i+1)+'. '+q.text;qc.appendChild(qt);
+    var scaleRow=document.createElement('div');scaleRow.style.cssText='display:flex;justify-content:space-between;gap:4px';
+    var labels=['Stimme nicht zu','','Neutral','','Stimme voll zu'];
+    for(var v=1;v<=5;v++){
+      (function(v){
+        var lblWrap=document.createElement('label');lblWrap.style.cssText='flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer';
+        var radio=document.createElement('input');radio.type='radio';radio.name='riasec-'+q.id;radio.value=v;radio.id='riasec-'+q.id+'-'+v;radio.style.cssText='width:18px;height:18px;cursor:pointer';
+        lblWrap.appendChild(radio);
+        if(labels[v-1]){var sp=document.createElement('span');sp.style.cssText='font-size:9px;color:#94a3b8;text-align:center';sp.textContent=labels[v-1];lblWrap.appendChild(sp);}
+        scaleRow.appendChild(lblWrap);
+      })(v);
+    }
+    qc.appendChild(scaleRow);
+    form.appendChild(qc);
+  });
+  wrap.appendChild(form);
+
+  var errMsg=document.createElement('div');errMsg.style.cssText='color:#dc2626;font-size:12px;margin-bottom:10px;display:none';errMsg.textContent='Bitte beantworte alle Fragen, bevor du auswertest.';
+  wrap.appendChild(errMsg);
+
+  var submitBtn=document.createElement('button');submitBtn.className='btn-blue';submitBtn.style.cssText='width:100%;background:#059669';submitBtn.textContent='✅ Auswerten';
+  submitBtn.onclick=function(){
+    var scores={R:0,I:0,A:0,S:0,E:0,C:0};
+    var allAnswered=true;
+    RIASEC_QUESTIONS.forEach(function(q){
+      var checked=document.querySelector('input[name="riasec-'+q.id+'"]:checked');
+      if(!checked){allAnswered=false;return;}
+      scores[q.dim]+=(+checked.value);
+    });
+    if(!allAnswered){errMsg.style.display='block';return;}
+    var sorted=Object.keys(scores).sort(function(a,b){return scores[b]-scores[a];});
+    var top2=[sorted[0],sorted[1]];
+    var combo=comboKey(top2[0],top2[1]);
+    S.uniTestResult={scores:scores,top2:top2,combo:combo};
+    render();
+  };
+  wrap.appendChild(submitBtn);
+  return wrap;
+}
+
+function buildUniDegrees(){
+  var wrap=document.createElement('div');
+  var note=document.createElement('div');note.style.cssText='font-size:11px;color:#94a3b8;margin-bottom:12px;line-height:1.5';note.textContent='NC-Werte sind grobe bundesweite Richtwerte aus vergangenen Semestern und schwanken je Hochschule und Jahr. Bewertung (⭐ /10) berücksichtigt u.a. Berufsaussichten, Vielseitigkeit und Nachfrage.';
+  wrap.appendChild(note);
+  DEGREES_LIST.forEach(function(deg,i){
+    var open=!!S.uniDegreeOpen[deg.name];
+    var card=document.createElement('div');card.style.cssText='margin-bottom:8px;border-radius:12px;border:1px solid '+(S.dark?'#334155':'#e2e8f0')+';overflow:hidden';
+    var hd=document.createElement('div');hd.style.cssText='padding:13px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;background:'+(S.dark?'#1e293b':'#f8fafc');
+    hd.innerHTML='<span style="font-size:20px">'+deg.icon+'</span><b style="font-size:13px;flex:1">'+deg.name+'</b><span style="font-size:12px;font-weight:800;color:#059669">⭐ '+deg.rating+'/10</span><span style="font-size:14px;color:#94a3b8;transform:rotate('+(open?'180deg':'0deg')+')">▾</span>';
+    hd.onclick=function(){S.uniDegreeOpen[deg.name]=!S.uniDegreeOpen[deg.name];render();};
+    var body=document.createElement('div');body.style.cssText='display:'+(open?'block':'none')+';padding:14px;border-top:1px solid '+(S.dark?'#334155':'#e2e8f0')+';font-size:13px;line-height:1.6';
+    body.innerHTML='<p style="margin:0 0 10px">'+deg.desc+'</p><div style="font-size:12px;margin-bottom:8px"><b>Durchschnittlicher NC:</b> '+deg.nc+'</div><div style="font-size:12px;font-weight:700;margin-bottom:4px">Spezialisierungsmöglichkeiten:</div><div style="display:flex;flex-wrap:wrap;gap:6px">'+deg.specializations.map(function(s){return '<span style="background:'+(S.dark?'#334155':'#f1f5f9')+';padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600">'+s+'</span>';}).join('')+'</div>';
+    card.appendChild(hd);card.appendChild(body);wrap.appendChild(card);
+  });
+  return wrap;
+}
+
+function buildUniFunding(){
+  var wrap=document.createElement('div');
+  var sec=UNI_SECTIONS.filter(function(s){return s.title.indexOf('Stipendien')!==-1;})[0];
+  if(sec){
+    var card=document.createElement('div');card.className='card';card.style.cssText='padding:16px;white-space:pre-wrap;font-size:13px;line-height:1.75';
+    card.innerHTML='<div style="font-weight:800;font-size:15px;margin-bottom:10px">'+sec.icon+' '+sec.title+'</div>'+sec.content.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    wrap.appendChild(card);
+  }
+  var linksCard=document.createElement('div');linksCard.className='card';linksCard.style.cssText='padding:16px;margin-top:10px;font-size:12px;line-height:1.8';
+  linksCard.innerHTML='<b style="font-size:13px">Weiterführende Links</b><br>🔗 stipendiumplus.de – Stipendiendatenbank<br>🔗 bafög.de – Offizielle BAföG-Infos<br>🔗 studienstiftung.de – Studienstiftung des deutschen Volkes<br>🔗 daad.de – Auslandsförderung';
+  wrap.appendChild(linksCard);
+  return wrap;
+}
+
+function buildUniMotivation(){
+  var wrap=document.createElement('div');
+  var sec=UNI_SECTIONS.filter(function(s){return s.title.indexOf('Motivationsschreiben')!==-1;})[0];
+  if(sec){
+    var card=document.createElement('div');card.className='card';card.style.cssText='padding:16px;white-space:pre-wrap;font-size:13px;line-height:1.75';
+    card.innerHTML='<div style="font-weight:800;font-size:15px;margin-bottom:10px">'+sec.icon+' '+sec.title+'</div>'+sec.content.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    wrap.appendChild(card);
+  }
+  var cvCard=document.createElement('div');cvCard.className='card';cvCard.style.cssText='padding:16px;margin-top:10px';
+  var cvH=document.createElement('div');cvH.style.cssText='font-weight:800;font-size:14px;margin-bottom:6px';cvH.textContent='📎 CV-Vorlage hochladen';cvCard.appendChild(cvH);
+  var cvP=document.createElement('div');cvP.style.cssText='font-size:12px;color:#64748b;margin-bottom:10px;line-height:1.5';cvP.textContent='Lade hier deine eigene Lebenslauf-Vorlage hoch, damit du sie griffbereit hast, wenn du deine Bewerbungsunterlagen zusammenstellst. Die Datei wird nur lokal in dieser Sitzung angezeigt.';cvCard.appendChild(cvP);
+  var fileLbl=document.createElement('label');fileLbl.className='btn-gray';fileLbl.style.cssText='width:100%;text-align:center;cursor:pointer;display:block';fileLbl.textContent=S.cvFileName?('📄 '+S.cvFileName+' (ändern)'):'📤 Datei auswählen';
+  var fileInp=document.createElement('input');fileInp.type='file';fileInp.accept='.pdf,.doc,.docx';fileInp.style.display='none';
+  fileInp.onchange=function(e){ if(e.target.files&&e.target.files[0]){ S.cvFileName=e.target.files[0].name; render(); } };
+  fileLbl.appendChild(fileInp);
+  cvCard.appendChild(fileLbl);
+  if(S.cvFileName){
+    var rm=document.createElement('button');rm.className='btn-red-sm';rm.style.cssText='margin-top:8px';rm.textContent='Entfernen';rm.onclick=function(){S.cvFileName='';render();};cvCard.appendChild(rm);
+  }
+  wrap.appendChild(cvCard);
+  return wrap;
+}
+
+var HOCHSCHULSTART_STEPS=[
+  {t:'Account erstellen',d:'Registriere dich unter hochschulstart.de mit deiner E-Mail-Adresse und lege ein Passwort fest. Du erhältst eine Bewerber-ID (BID) und musst eine Bewerber-Authentifizierungsnummer (BAN) beantragen.'},
+  {t:'Studiengang auswählen',d:'Wähle deinen gewünschten zulassungsbeschränkten Studiengang (z.B. Medizin, Zahnmedizin, Pharmazie, Tiermedizin) und trage bis zu 6 Hochschulen in deiner Wunschreihenfolge ein.'},
+  {t:'Persönliche Daten & Abiturdaten eingeben',d:'Trage deine Abiturnote, Bundesland, Wartesemester (falls vorhanden) und ggf. TMS-Ergebnis oder Berufsausbildung ein. Diese Angaben werden für die Quotenberechnung genutzt.'},
+  {t:'Unterlagen hochladen',d:'Lade dein Abiturzeugnis (bzw. bei Bewerbung vor dem Abitur die vorläufige Bescheinigung) und ggf. weitere geforderte Nachweise digital hoch.'},
+  {t:'Bewerbung fristgerecht abschicken',d:'Sende deine Bewerbung bis zum 15. Juli (Wintersemester) bzw. 15. Januar (Sommersemester) verbindlich ab. Nach Ablauf der Frist sind keine Änderungen mehr möglich.'},
+  {t:'Auf Zulassungsbescheid warten',d:'Du erhältst deinen Bescheid über das Portal. Bei Zulassung musst du dich innerhalb der angegebenen Frist online immatrikulieren oder den Platz annehmen, sonst verfällt er.'},
+  {t:'Nachrückverfahren beachten',d:'Falls du zunächst keinen Platz bekommst, kannst du an automatischen Nachrückrunden teilnehmen, falls Plätze durch Absagen anderer frei werden.'}
+];
+var UNIASSIST_STEPS=[
+  {t:'Prüfen, ob uni-assist zuständig ist',d:'Uni-assist wird von vielen deutschen Hochschulen genutzt, um Bewerbungen zu prüfen – v.a. für internationale Bewerber, aber auch für manche NC-Fächer deutscher Bewerber. Prüfe auf der Website der Zielhochschule, ob sie uni-assist nutzt.'},
+  {t:'Account bei uni-assist anlegen',d:'Registriere dich kostenlos auf uni-assist.de und beginne den Online-Antrag für die gewünschte Hochschule und den gewünschten Studiengang.'},
+  {t:'Dokumente vorbereiten',d:'Halte Zeugnisse (Abiturzeugnis bzw. Hochschulzugangsberechtigung), Lebenslauf, ggf. Sprachnachweise und Studiengang-spezifische Unterlagen als Kopien bzw. Scans bereit.'},
+  {t:'Online-Antrag ausfüllen',d:'Trage deine persönlichen Daten, Bildungsweg und die gewünschten Studiengänge/Hochschulen in das Online-Formular ein.'},
+  {t:'Unterlagen einreichen & Gebühr zahlen',d:'Lade die geforderten Dokumente hoch oder sende sie postalisch ein und bezahle die Bearbeitungsgebühr (für das erste Hochschulangebot, weitere sind meist günstiger).'},
+  {t:'Prüfung abwarten',d:'Uni-assist prüft deine Unterlagen auf Vollständigkeit und Vergleichbarkeit deines Abschlusses mit dem deutschen Schulsystem – das dauert in der Regel 4–6 Wochen.'},
+  {t:'Ergebnis an die Hochschule',d:'Nach der Prüfung leitet uni-assist deine Bewerbung mit einer Bewertung an die Hochschule weiter, die dann die endgültige Zulassungsentscheidung trifft.'}
+];
+
+function buildStepList(title,icon,steps){
+  var card=document.createElement('div');card.className='card';card.style.cssText='padding:16px;margin-bottom:14px';
+  var h=document.createElement('div');h.style.cssText='font-weight:800;font-size:15px;margin-bottom:12px';h.textContent=icon+' '+title;card.appendChild(h);
+  steps.forEach(function(s,i){
+    var row=document.createElement('div');row.style.cssText='display:flex;gap:12px;margin-bottom:'+(i<steps.length-1?'14px':'0');
+    var num=document.createElement('div');num.style.cssText='min-width:26px;height:26px;border-radius:50%;background:#059669;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex-shrink:0';num.textContent=(i+1);
+    var txt=document.createElement('div');txt.innerHTML='<div style="font-weight:700;font-size:13px;margin-bottom:3px">'+s.t+'</div><div style="font-size:12px;color:'+(S.dark?'#94a3b8':'#64748b')+';line-height:1.6">'+s.d+'</div>';
+    row.appendChild(num);row.appendChild(txt);card.appendChild(row);
+  });
+  return card;
+}
+
+function buildUniHowTo(){
+  var wrap=document.createElement('div');
+  var intro=document.createElement('div');intro.style.cssText='font-size:12px;color:#64748b;margin-bottom:14px;line-height:1.6';
+  intro.textContent='Die beiden wichtigsten Portale für die Hochschulbewerbung in Deutschland sind hochschulstart.de (für bundesweit zulassungsbeschränkte Fächer wie Medizin) und uni-assist.de (Vorprüfung von Bewerbungen für viele Hochschulen). Hier findest du beide Schritt für Schritt erklärt.';
+  wrap.appendChild(intro);
+  wrap.appendChild(buildStepList('Hochschulstart.de – Schritt für Schritt','🏥',HOCHSCHULSTART_STEPS));
+  wrap.appendChild(buildStepList('Uni-Assist – Schritt für Schritt','🌍',UNIASSIST_STEPS));
+
+  var extraH=document.createElement('div');extraH.style.cssText='font-weight:800;font-size:14px;margin:16px 0 8px';extraH.textContent='Weitere wichtige Infos';wrap.appendChild(extraH);
+  UNI_SECTIONS.filter(function(s){return s.title.indexOf('Stipendien')===-1&&s.title.indexOf('Motivationsschreiben')===-1;}).forEach(function(sec){
+    var card=document.createElement('div');card.style.cssText='margin-bottom:8px;border-radius:12px;border:1px solid '+(S.dark?'#334155':'#e2e8f0')+';overflow:hidden';
+    var hd2=document.createElement('div');hd2.style.cssText='padding:12px 14px;display:flex;align-items:center;gap:8px;cursor:pointer;background:'+(S.dark?'#1e293b':'#f8fafc');
+    hd2.innerHTML=sec.icon+' <b style="font-size:13px;flex:1">'+sec.title+'</b>';
+    var body=document.createElement('div');body.style.cssText='display:none;padding:14px;font-size:13px;line-height:1.75;white-space:pre-wrap;border-top:1px solid '+(S.dark?'#334155':'#e2e8f0');body.textContent=sec.content;
+    hd2.onclick=function(){body.style.display=body.style.display==='none'?'block':'none';};
+    card.appendChild(hd2);card.appendChild(body);wrap.appendChild(card);
+  });
+  return wrap;
 }
 
 // ==================== CALCULATOR ====================
@@ -1842,23 +2122,13 @@ function buildProfileModal(){
   hdr.appendChild(av);hdr.appendChild(hi);hdr.appendChild(cl);box.appendChild(hdr);
 
   var tabs=document.createElement('div');tabs.style.cssText='display:flex;gap:6px;margin-bottom:18px';
-  [{id:'stats',label:'Stats'},{id:'settings',label:'Einstellungen'},{id:'uni',label:'Uni-Bewerbung'}].forEach(function(t){
+  [{id:'stats',label:'Stats'},{id:'settings',label:'Einstellungen'}].forEach(function(t){
     var b=document.createElement('button');b.style.cssText='padding:7px 14px;border-radius:10px;border:none;font-size:13px;font-weight:600;cursor:pointer;background:'+(S.profileTab===t.id?'#1d4ed8':'#f1f5f9')+';color:'+(S.profileTab===t.id?'#fff':'#64748b');
     b.textContent=t.label;b.onclick=function(){S.profileTab=t.id;render();};tabs.appendChild(b);
   });
   box.appendChild(tabs);
 
-  if(S.profileTab==='uni'){
-    var h4=document.createElement('h4');h4.style.cssText='font-weight:800;font-size:15px;margin-bottom:12px';h4.textContent='Uni-Bewerbungsguide';box.appendChild(h4);
-    UNI_SECTIONS.forEach(function(sec,i){
-      var card=document.createElement('div');card.style.cssText='margin-bottom:8px;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden';
-      var hd2=document.createElement('div');hd2.style.cssText='padding:12px 14px;display:flex;align-items:center;gap:8px;cursor:pointer;background:#f8fafc';
-      hd2.innerHTML=sec.icon+' <b style="font-size:13px;flex:1">'+sec.title+'</b>';
-      var body=document.createElement('div');body.style.cssText='display:none;padding:14px;font-size:13px;line-height:1.75;white-space:pre-wrap;border-top:1px solid #e2e8f0';body.textContent=sec.content;
-      hd2.onclick=function(){body.style.display=body.style.display==='none'?'block':'none';};
-      card.appendChild(hd2);card.appendChild(body);box.appendChild(card);
-    });
-  } else if(S.profileTab==='settings'){
+  if(S.profileTab==='settings'){
     var isPremU=!!(S.user&&S.user.premium);
     var premBox=document.createElement('div');
     premBox.style.cssText='border-radius:14px;padding:16px;margin-bottom:18px;'+(isPremU?'background:#dcfce7':'background:linear-gradient(135deg,#1e3a8a,#2563eb)');
