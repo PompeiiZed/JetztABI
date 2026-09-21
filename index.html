@@ -269,7 +269,7 @@ var profileLoaded=false;
 function applyProfileRow(row){
   if(!row||!S.user)return;
   S.user.bundesland   = row.bundesland || S.user.bundesland || '';
-  S.user.school       = row.school || S.user.school || '';
+  // Datenminimierung: Schulform wird nur lokal in der Sitzung gehalten und nicht serverseitig gespeichert.
   S.user.abiYear      = row.abi_year || S.user.abiYear || '2027';
   S.user.lk           = row.lk_subjects || S.user.lk || [];
   S.user.subs         = row.other_subjects || S.user.subs || [];
@@ -302,7 +302,6 @@ async function saveProfileNow(){
       id:S.user.id,
       full_name:S.user.name||null,
       bundesland:S.user.bundesland||null,
-      school:S.user.school||null,
       abi_year:S.user.abiYear||null,
       lk_subjects:S.user.lk||[],
       other_subjects:S.user.subs||[],
@@ -957,7 +956,12 @@ function buildAuth(){
     return w;
   }
   var nameField, emailField, pwField, tosCheckbox;
-  if(S.authMode==='register'){nameField=field('Name','text','Dein vollständiger Name');box.appendChild(nameField);}
+  if(S.authMode==='register'){
+    nameField=field('Anzeigename','text','Vorname oder Spitzname');box.appendChild(nameField);
+    var nameHint=document.createElement('div');nameHint.style.cssText='font-size:11px;color:#94a3b8;margin:-8px 0 12px;line-height:1.5';
+    nameHint.textContent='Wird nur zur Begrüßung in der App verwendet. Ein Spitzname genügt – du musst deinen echten Namen nicht angeben.';
+    box.appendChild(nameHint);
+  }
   emailField=field('E-Mail','email','deine@email.de');box.appendChild(emailField);
   pwField=field('Passwort','password','••••••••');box.appendChild(pwField);
   if(S.authMode==='register'){
@@ -2245,6 +2249,152 @@ function buildProg(){
   return d;
 }
 
+// ==================== KONTO- & ABO-VERWALTUNG ====================
+// Eigenständige Overlays (nicht über render()), damit Eingaben nicht verloren gehen.
+var ACCT_MODAL_EL=null;
+function closeAcctModal(){
+  document.removeEventListener('keydown',acctEscHandler);
+  if(ACCT_MODAL_EL&&ACCT_MODAL_EL.parentNode){ACCT_MODAL_EL.parentNode.removeChild(ACCT_MODAL_EL);}
+  ACCT_MODAL_EL=null;
+}
+function acctEscHandler(e){ if(e.key==='Escape') closeAcctModal(); }
+function acctShell(titleText){
+  closeAcctModal();
+  var dark=!!(typeof S!=='undefined'&&S.dark);
+  var fg=dark?'#e2e8f0':'#0f172a', sub=dark?'#94a3b8':'#64748b', bg=dark?'#0f172a':'#ffffff', line=dark?'#334155':'#e2e8f0';
+  var overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9998;display:flex;align-items:center;justify-content:center;padding:16px;backdrop-filter:blur(4px)';
+  var box=document.createElement('div');
+  box.style.cssText='background:'+bg+';color:'+fg+';width:100%;max-width:420px;max-height:86vh;border-radius:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.35)';
+  box.onclick=function(e){e.stopPropagation();};
+  var hdr=document.createElement('div');
+  hdr.style.cssText='padding:14px 16px;border-bottom:1px solid '+line+';display:flex;align-items:center;gap:10px;flex-shrink:0';
+  var h=document.createElement('div');h.style.cssText='font-weight:800;font-size:15px;flex:1';h.textContent=titleText;
+  var x=document.createElement('button');x.setAttribute('aria-label','Schließen');
+  x.style.cssText='background:none;border:none;font-size:22px;line-height:1;cursor:pointer;color:'+sub+';padding:0 4px';x.innerHTML='&times;';
+  x.onclick=closeAcctModal;
+  hdr.appendChild(h);hdr.appendChild(x);box.appendChild(hdr);
+  var body=document.createElement('div');
+  body.style.cssText='overflow-y:auto;padding:18px;flex:1;font-size:13px;line-height:1.65';
+  box.appendChild(body);
+  overlay.appendChild(box);overlay.onclick=closeAcctModal;
+  document.body.appendChild(overlay);ACCT_MODAL_EL=overlay;
+  document.addEventListener('keydown',acctEscHandler);
+  return {overlay:overlay,box:box,body:body,sub:sub,line:line,dark:dark};
+}
+
+function openPaymentModal(){
+  var m=acctShell('💳 Zahlungsmethode');
+  var note=document.createElement('div');
+  note.style.cssText='background:'+(m.dark?'#1e293b':'#f8fafc')+';border:1px solid '+m.line+';border-radius:10px;padding:12px;margin-bottom:14px;font-size:12px;color:'+m.sub+';line-height:1.6';
+  note.textContent='Zahlungsdaten werden ausschließlich bei unserem Zahlungsdienstleister verarbeitet und niemals auf unseren Servern gespeichert. Wir erhalten lediglich eine Zahlungskennung sowie die letzten vier Ziffern zur Wiedererkennung.';
+  m.body.appendChild(note);
+  [['💳','Kredit- oder Debitkarte'],['🅿️','PayPal'],['🏦','SEPA-Lastschrift']].forEach(function(p){
+    var b=document.createElement('button');
+    b.style.cssText='width:100%;padding:13px 14px;border-radius:10px;border:1px solid '+m.line+';background:'+(m.dark?'#1e293b':'#fff')+';color:inherit;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;text-align:left';
+    b.textContent=p[0]+'   '+p[1];
+    b.onclick=function(){
+      note.style.color='#b45309';
+      note.textContent='Die Zahlungsabwicklung ist in dieser Version noch nicht aktiviert. Sobald ein Zahlungsdienstleister angebunden ist, wirst du an dieser Stelle sicher weitergeleitet.';
+      m.body.scrollTop=0;
+    };
+    m.body.appendChild(b);
+  });
+  var back=document.createElement('button');back.className='btn-gray';back.style.cssText='width:100%;margin-top:6px';back.textContent='Zurück';back.onclick=closeAcctModal;m.body.appendChild(back);
+}
+
+function openCancelSubModal(){
+  var m=acctShell('Abo kündigen');
+  var plan=(S.user&&S.user.premiumPlan==='annual')?'Jahresabo (30€/Jahr)':'Monatsabo (3€/Monat)';
+  var info=document.createElement('div');
+  info.style.cssText='margin-bottom:16px;color:'+(m.dark?'#cbd5e1':'#334155');
+  info.textContent='Aktueller Plan: '+plan+'\n\nWenn du kündigst, bleibt dein Zugang bis zum Ende des bereits bezahlten Zeitraums bestehen. Danach wird dein Konto automatisch auf die kostenlose Version umgestellt. Es erfolgt keine weitere Abbuchung.\n\nDein Lernfortschritt, deine Noten und dein Konto bleiben erhalten.';
+  info.style.whiteSpace='pre-wrap';
+  m.body.appendChild(info);
+  var confirm=document.createElement('button');
+  confirm.style.cssText='width:100%;padding:12px;border-radius:10px;border:none;background:#dc2626;color:#fff;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px';
+  confirm.textContent='Abo jetzt kündigen';
+  confirm.onclick=function(){
+    if(S.user){ S.user.premium=false; S.user.premiumPlan=null; saveProfileNow(); }
+    closeAcctModal();
+    S.profileModal=false;
+    render();
+    showToastMsg('Dein Abo wurde gekündigt. Der Zugang bleibt bis zum Ende des bezahlten Zeitraums aktiv.');
+  };
+  var keep=document.createElement('button');keep.className='btn-gray';keep.style.cssText='width:100%';keep.textContent='Abo behalten';keep.onclick=closeAcctModal;
+  m.body.appendChild(confirm);m.body.appendChild(keep);
+}
+
+// Entfernt sämtliche lokal gespeicherten Daten dieser App
+function wipeLocalAppData(){
+  try{
+    [CALC_STORAGE_KEY,PROGRESS_STORAGE_KEY].forEach(function(k){ localStorage.removeItem(k); });
+    Object.keys(localStorage).forEach(function(k){
+      if(k.indexOf('abi')===0||k.indexOf('sb-')===0||k.indexOf('supabase')!==-1) localStorage.removeItem(k);
+    });
+    if(window.sessionStorage) sessionStorage.clear();
+  }catch(e){}
+}
+
+function openDeleteAccountModal(){
+  var m=acctShell('🗑️ Konto endgültig löschen');
+  var warn=document.createElement('div');
+  warn.style.cssText='background:'+(m.dark?'#450a0a':'#fef2f2')+';border:1px solid '+(m.dark?'#7f1d1d':'#fecaca')+';border-radius:10px;padding:12px;margin-bottom:14px;font-size:12.5px;line-height:1.6;color:'+(m.dark?'#fecaca':'#991b1b');
+  warn.textContent='Diese Aktion ist endgültig und kann nicht rückgängig gemacht werden.';
+  m.body.appendChild(warn);
+
+  var what=document.createElement('div');
+  what.style.cssText='font-size:12.5px;line-height:1.65;margin-bottom:14px;color:'+(m.dark?'#cbd5e1':'#334155');
+  what.style.whiteSpace='pre-wrap';
+  what.textContent='Dauerhaft gelöscht werden:\n\n• dein Zugangskonto und deine E-Mail-Adresse\n• dein Profil (Anzeigename, Bundesland, Abiturjahrgang)\n• alle eingegebenen Noten und Berechnungen\n• dein Lernfortschritt, XP, Streak und Karteikartenstände\n• alle auf diesem Gerät lokal gespeicherten Daten\n\nEine laufende Abrechnung wird beendet. Gesetzliche Aufbewahrungsfristen, etwa für Rechnungsbelege, bleiben unberührt; die betroffenen Daten werden für jede weitere Verarbeitung gesperrt.';
+  m.body.appendChild(what);
+
+  var lbl=document.createElement('label');lbl.style.cssText='font-size:12px;font-weight:700;display:block;margin-bottom:6px';
+  lbl.textContent='Tippe LÖSCHEN, um zu bestätigen:';
+  m.body.appendChild(lbl);
+  var inp=document.createElement('input');inp.type='text';inp.autocapitalize='characters';inp.placeholder='LÖSCHEN';
+  inp.style.cssText='width:100%;padding:11px 12px;border-radius:10px;border:1px solid '+m.line+';background:'+(m.dark?'#1e293b':'#fff')+';color:inherit;font-size:14px;margin-bottom:6px;box-sizing:border-box';
+  m.body.appendChild(inp);
+  var err=document.createElement('div');err.style.cssText='font-size:11.5px;color:#dc2626;min-height:16px;margin-bottom:10px';m.body.appendChild(err);
+
+  var go2=document.createElement('button');
+  go2.style.cssText='width:100%;padding:12px;border-radius:10px;border:none;background:#dc2626;color:#fff;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px';
+  go2.textContent='Konto und alle Daten endgültig löschen';
+  go2.onclick=async function(){
+    if(inp.value.trim().toUpperCase()!=='LÖSCHEN'&&inp.value.trim().toUpperCase()!=='LOSCHEN'){
+      err.textContent='Bitte tippe LÖSCHEN, um die Löschung zu bestätigen.';return;
+    }
+    err.textContent='';go2.disabled=true;go2.textContent='Konto wird gelöscht...';
+    var userEmail=(S.user&&S.user.email)||'';
+    try{
+      if(sb&&S.user&&S.user.id){
+        // Serverseitige Löschung inkl. Auth-Eintrag und Bestätigungsmail (Edge Function)
+        var res=await sb.functions.invoke('delete-account',{body:{user_id:S.user.id,email:userEmail}});
+        if(res&&res.error) console.warn('Server-Löschung fehlgeschlagen:',res.error.message);
+        // Fallback: Profilzeile direkt entfernen (RLS: nur eigene Zeile)
+        try{ await sb.from('profiles').delete().eq('id',S.user.id); }catch(e2){}
+      }
+    }catch(e){ console.warn('Löschung fehlgeschlagen:',e); }
+    try{ if(profileSyncTimer){clearTimeout(profileSyncTimer);profileSyncTimer=null;} }catch(e){}
+    try{ if(sb) await sb.auth.signOut(); }catch(e){}
+    wipeLocalAppData();
+    S.user=null;profileLoaded=false;S.profileModal=false;
+    closeAcctModal();
+    go('landing');
+    showToastMsg('Dein Konto und alle zugehörigen Daten wurden gelöscht. Eine Bestätigung wurde an '+(userEmail||'deine E-Mail-Adresse')+' gesendet.');
+  };
+  var cancel=document.createElement('button');cancel.className='btn-gray';cancel.style.cssText='width:100%';cancel.textContent='Abbrechen';cancel.onclick=closeAcctModal;
+  m.body.appendChild(go2);m.body.appendChild(cancel);
+  setTimeout(function(){try{inp.focus();}catch(e){}},50);
+}
+
+function showToastMsg(text){
+  var t=document.createElement('div');
+  t.style.cssText='position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#0f172a;color:#fff;padding:12px 18px;border-radius:12px;font-size:12.5px;font-weight:600;z-index:10000;max-width:90%;width:360px;box-shadow:0 10px 30px rgba(0,0,0,.3);line-height:1.5;text-align:center';
+  t.textContent=text;document.body.appendChild(t);
+  setTimeout(function(){ if(t.parentNode) t.parentNode.removeChild(t); },5200);
+}
+
 // ==================== RECHTLICHES (AGB / Datenschutz) ====================
 // Platzhalter in eckigen Klammern vor Veröffentlichung durch echte Angaben ersetzen.
 var LEGAL_OPERATOR={
@@ -2286,10 +2436,12 @@ var LEGAL_DOCS={
       {h:'1. Verantwortlicher',p:'Verantwortlicher im Sinne der Datenschutz-Grundverordnung (DSGVO) ist:\n\n'+LEGAL_OPERATOR.name+'\n'+LEGAL_OPERATOR.street+'\n'+LEGAL_OPERATOR.city+', '+LEGAL_OPERATOR.country+'\nE-Mail: '+LEGAL_OPERATOR.email+'\n\nBei Fragen zum Datenschutz sowie zur Ausübung deiner Rechte kannst du dich jederzeit unter den vorstehenden Kontaktdaten an uns wenden.'},
       {h:'2. Grundsätze der Verarbeitung',p:'Wir verarbeiten personenbezogene Daten ausschließlich im Einklang mit der DSGVO und dem Bundesdatenschutzgesetz (BDSG). Personenbezogene Daten sind alle Informationen, die sich auf eine identifizierte oder identifizierbare natürliche Person beziehen.\n\nWir verarbeiten nur solche Daten, die für den Betrieb des Dienstes erforderlich sind (Grundsatz der Datenminimierung), und speichern sie nur so lange, wie es der jeweilige Zweck erfordert.'},
       {h:'3. Rechtsgrundlagen',p:'Die Verarbeitung erfolgt auf Grundlage der folgenden Vorschriften:\n\n• Art. 6 Abs. 1 lit. a DSGVO – Einwilligung, etwa bei optionalen Funktionen\n• Art. 6 Abs. 1 lit. b DSGVO – Erfüllung des Nutzungsvertrages, insbesondere bei Registrierung, Anmeldung und Bereitstellung der Lernfunktionen\n• Art. 6 Abs. 1 lit. c DSGVO – Erfüllung rechtlicher Verpflichtungen\n• Art. 6 Abs. 1 lit. f DSGVO – berechtigte Interessen, insbesondere an IT-Sicherheit, Missbrauchsabwehr und Stabilität des Dienstes'},
-      {h:'4. Welche Daten wir verarbeiten',p:'a) Bestandsdaten bei Registrierung: Name, E-Mail-Adresse, verschlüsseltes Passwort, Zeitpunkt der Registrierung sowie, sofern angegeben, das Bundesland.\n\nb) Nutzungs- und Lerndaten: eingegebene Noten und Punktwerte, Prüfungsfächer, Lernfortschritte, Quiz- und Karteikartenergebnisse, Einstellungen sowie die Ergebnisse des Interessentests.\n\nc) Inhalte des KI-Tutor-Chats: die von dir eingegebenen Fragen und die zugehörigen Antworten.\n\nd) Technische Zugriffsdaten: IP-Adresse, Datum und Uhrzeit des Zugriffs, Browsertyp und -version, Betriebssystem sowie die aufgerufene Seite.\n\nDie von dir eingegebenen Noten können mittelbar Rückschlüsse auf schulische Leistungen zulassen. Wir behandeln diese Angaben mit besonderer Sorgfalt, geben sie nicht an Dritte zu Werbezwecken weiter und nutzen sie ausschließlich zur Bereitstellung der von dir angeforderten Funktionen.'},
+      {h:'4. Welche Daten wir verarbeiten, wo sie liegen und wozu',p:'Wir verarbeiten ausschließlich die nachfolgend abschließend aufgeführten Daten. Weitere personenbezogene Daten erheben wir nicht.\n\nA) KONTODATEN — Anzeigename, E-Mail-Adresse, Passwort-Hashwert, Zeitpunkt der Registrierung.\nZweck: Anlage und Absicherung deines Zugangs.\nSpeicherort: Datenbank unseres Backend-Dienstleisters innerhalb der EU.\nRechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO.\nDauer: bis zur Löschung des Kontos.\nHinweis: Der Anzeigename dient allein der Begrüßung in der App. Ein Spitzname genügt; die Angabe eines Klarnamens ist nicht erforderlich.\n\nB) PROFILDATEN — Bundesland, Abiturjahrgang, gewählte Leistungs- und Prüfungsfächer.\nZweck: korrekte Notenberechnung nach der jeweiligen Landesprüfungsordnung und Auswahl passender Lerninhalte. Ohne das Bundesland ist eine zutreffende Berechnung technisch nicht möglich.\nSpeicherort: wie unter A).\nRechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO.\nDauer: bis zur Löschung des Kontos.\n\nC) NOTEN- UND BERECHNUNGSDATEN — eingegebene Punktwerte, Kursnoten, Prüfungsergebnisse.\nZweck: Berechnung und geräteübergreifende Sicherung deines Abiturschnitts.\nSpeicherort: lokal im Speicher deines Browsers sowie, bei bestehendem Konto, in der Datenbank unseres Backend-Dienstleisters.\nRechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO.\nDauer: bis zur Löschung des Kontos oder bis du die Werte selbst entfernst.\nHinweis: Diese Angaben lassen Rückschlüsse auf schulische Leistungen zu. Sie werden ausschließlich zur Bereitstellung der von dir angeforderten Funktionen genutzt, nicht ausgewertet, nicht profiliert und nicht an Dritte weitergegeben.\n\nD) LERNFORTSCHRITT — XP, Streak, bearbeitete Themen, Karteikartenstände, Lernzeit.\nZweck: Darstellung deines Fortschritts und Wiederaufnahme an der zuletzt bearbeiteten Stelle.\nSpeicherort: lokal im Speicher deines Browsers; bei bestehendem Konto zusätzlich in der Datenbank.\nRechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO.\n\nE) ERGEBNIS DES INTERESSENTESTS — deine Antworten sowie das errechnete RIASEC-Profil.\nZweck: unverbindlicher Abgleich mit der Studiengangsdatenbank.\nSpeicherort: ausschließlich im Arbeitsspeicher deines Browsers während der laufenden Sitzung.\nDauer: wird beim Schließen der Anwendung verworfen und nicht an uns übermittelt.\n\nF) INHALTE DES KI-TUTORS — deine Eingaben im Tutor-Chat.\nZweck: Erzeugung einer Antwort.\nSpeicherort: ausschließlich im Arbeitsspeicher deines Browsers während der laufenden Sitzung. Der Verlauf wird weder dauerhaft gespeichert noch serverseitig abgelegt.\n\nG) TECHNISCHE ZUGRIFFSDATEN — IP-Adresse, Zeitpunkt, Browsertyp, Betriebssystem, aufgerufene Ressource.\nZweck: Auslieferung der Inhalte, Systemsicherheit, Missbrauchsabwehr.\nSpeicherort: Server-Logfiles unseres Hosting-Dienstleisters.\nRechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.\nDauer: Löschung oder Anonymisierung nach spätestens dreißig Tagen.\n\nNICHT verarbeitet werden: Klarname (sofern nicht freiwillig angegeben), Anschrift, Telefonnummer, Geburtsdatum, Schulname, Standortdaten, Kontaktlisten, Gerätekennungen zu Werbezwecken sowie besondere Kategorien personenbezogener Daten nach Art. 9 DSGVO.'},
+      {h:'4a. Grundsatz der Datenminimierung',p:'Wir erheben bewusst so wenige Daten wie möglich. Konkret bedeutet das:\n\n• Für die Registrierung genügen E-Mail-Adresse und Passwort; ein Klarname wird nicht verlangt.\n• Die Schulform wird nur während der laufenden Sitzung zur Anzeige verwendet und nicht dauerhaft gespeichert.\n• Die Ergebnisse des Interessentests und der Verlauf des KI-Tutors verlassen deinen Browser nicht.\n• Wir setzen keine Analyse-, Tracking- oder Werbedienste ein und erstellen keine Nutzungsprofile.\n• Wir verwenden keine Cookies zu Werbezwecken und binden keine Social-Media-Plugins ein.\n• Ein Verkauf oder eine Vermietung personenbezogener Daten findet unter keinen Umständen statt.'},
       {h:'5. Registrierung und Anmeldung',p:'Zur Anlage eines Nutzerkontos verarbeiten wir die unter Ziffer 4 lit. a genannten Daten. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO.\n\nPasswörter werden ausschließlich in Form kryptografischer Hashwerte gespeichert; eine Kenntnisnahme des Klartextpassworts durch uns ist ausgeschlossen.\n\nOptional kannst du dich über einen Drittanbieter-Login (Google) anmelden. In diesem Fall erhalten wir von Google die für die Kontoerstellung erforderlichen Daten, regelmäßig Name, E-Mail-Adresse und Profilkennung. Es gelten ergänzend die Datenschutzhinweise von Google. Rechtsgrundlage ist deine Einwilligung gemäß Art. 6 Abs. 1 lit. a DSGVO sowie Art. 6 Abs. 1 lit. b DSGVO.'},
-      {h:'6. Hosting und Auftragsverarbeiter',p:'Wir setzen zur Bereitstellung des Dienstes sorgfältig ausgewählte Dienstleister ein, mit denen jeweils ein Vertrag zur Auftragsverarbeitung nach Art. 28 DSGVO besteht:\n\n• Hosting und Auslieferung der Webanwendung über einen Content-Delivery-Network-Anbieter. Hierbei fallen technische Zugriffsdaten in Server-Logfiles an, die der Betriebssicherheit dienen.\n\n• Authentifizierung und Datenbank über einen Backend-as-a-Service-Anbieter, bei dem Bestandsdaten sowie Lern- und Nutzungsdaten gespeichert werden.\n\n• Verarbeitung der Anfragen an den KI-Tutor über einen Anbieter von Sprachmodellen.\n\nRechtsgrundlage ist Art. 6 Abs. 1 lit. b und lit. f DSGVO.'},
-      {h:'7. Verarbeitung im KI-Tutor',p:'Wenn du den KI-Tutor nutzt, werden die von dir eingegebenen Nachrichten zur Erzeugung einer Antwort an den beauftragten Anbieter von Sprachmodellen übermittelt und dort verarbeitet.\n\nBitte gib im Chat keine besonderen Kategorien personenbezogener Daten im Sinne des Art. 9 DSGVO ein, insbesondere keine Gesundheitsdaten, und keine Daten Dritter. Vermeide die Eingabe unnötiger Klarnamen und Kontaktdaten.\n\nDie Verarbeitung erfolgt zur Vertragserfüllung nach Art. 6 Abs. 1 lit. b DSGVO. Der Chatverlauf wird gespeichert, um dir den Zugriff auf frühere Unterhaltungen zu ermöglichen; du kannst ihn jederzeit löschen.'},
+      {h:'6. Eingesetzte Dienstleister und Drittanbieter-Software',p:'Wir setzen die folgenden Dienste ein. Mit jedem Auftragsverarbeiter besteht ein Vertrag nach Art. 28 DSGVO.\n\n1) HOSTING UND AUSLIEFERUNG — ein Content-Delivery-Network-Anbieter liefert die Anwendung aus. Dabei fallen die unter Ziffer 4 lit. G genannten Zugriffsdaten an.\n\n2) AUTHENTIFIZIERUNG UND DATENBANK — ein Backend-as-a-Service-Anbieter (Supabase) speichert Konto-, Profil-, Noten- und Fortschrittsdaten und wickelt die Anmeldung ab. Die zugehörige Client-Bibliothek wird beim Seitenaufruf von einem öffentlichen Paket-CDN geladen; dabei wird deine IP-Adresse technisch bedingt an dessen Betreiber übermittelt.\n\n3) SCHRIFTART — die Schriftfamilie "Inter" wird derzeit über Google Fonts geladen. Dabei wird deine IP-Adresse an Google übermittelt. Wir arbeiten daran, die Schriftdateien lokal auszuliefern, um diese Übermittlung vollständig zu vermeiden.\n\n4) ANMELDUNG ÜBER GOOGLE (optional) — nur bei aktiver Nutzung dieser Schaltfläche.\n\n5) ZAHLUNGSABWICKLUNG — sobald kostenpflichtige Funktionen aktiviert werden, erfolgt die Abwicklung über einen spezialisierten Zahlungsdienstleister. Vollständige Zahlungsdaten werden ausschließlich dort verarbeitet und gelangen zu keinem Zeitpunkt auf unsere Systeme.\n\nNICHT eingesetzt werden: Google Analytics oder vergleichbare Analysewerkzeuge, Werbenetzwerke, Social-Media-Plugins, Heatmap- oder Session-Recording-Software sowie Tracking-Pixel.'},
+      {h:'6a. Löschung deines Kontos',p:'Du kannst dein Konto jederzeit selbst und ohne Angabe von Gründen löschen. Die Funktion findest du in der App unter Profil und Einstellungen im Bereich "Konto löschen".\n\nMit der Bestätigung werden gelöscht: dein Zugangskonto einschließlich E-Mail-Adresse, dein Profil, sämtliche Noten- und Berechnungsdaten, dein Lernfortschritt sowie alle auf dem Gerät lokal abgelegten Daten. Über den Abschluss der Löschung informieren wir dich zusätzlich per E-Mail an die zuletzt hinterlegte Adresse.\n\nDie Löschung erfolgt unverzüglich. Sie ist endgültig; eine Wiederherstellung ist technisch nicht möglich. Bestehen ausnahmsweise gesetzliche Aufbewahrungspflichten, etwa für Rechnungsbelege nach Handels- und Steuerrecht, werden die hiervon betroffenen Daten für jede weitere Verarbeitung gesperrt und nach Ablauf der Frist gelöscht.'},
+      {h:'7. Verarbeitung im KI-Tutor',p:'In der aktuellen Version werden die Antworten des Tutor-Chats vollständig innerhalb deines Browsers aus einem fest hinterlegten Inhaltsbestand erzeugt. Deine Eingaben werden dabei weder an uns noch an einen Drittanbieter übermittelt und nicht gespeichert; der Verlauf wird beim Schließen der Anwendung verworfen.\n\nSobald ein externes Sprachmodell angebunden wird, werden deine Eingaben zur Erzeugung einer Antwort an den betreffenden Anbieter übermittelt. Wir werden diese Erklärung vor der Aktivierung entsprechend anpassen und dich gesondert informieren.\n\nBitte gib im Chat unabhängig davon keine besonderen Kategorien personenbezogener Daten nach Art. 9 DSGVO ein, insbesondere keine Gesundheitsdaten, und keine Daten Dritter.'},
       {h:'8. Server-Logfiles',p:'Bei jedem Aufruf werden automatisiert technische Zugriffsdaten erhoben und in Logfiles gespeichert. Diese Verarbeitung ist zur Auslieferung der Inhalte technisch erforderlich und dient der Systemsicherheit sowie der Aufklärung von Missbrauch.\n\nRechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Unser berechtigtes Interesse liegt in der Gewährleistung eines störungsfreien und sicheren Betriebs. Logfiles werden regelmäßig nach spätestens dreißig Tagen gelöscht oder anonymisiert.'},
       {h:'9. Cookies und lokale Speicherung',p:'Wir verwenden technisch notwendige Cookies und vergleichbare Speichertechnologien im Browser, insbesondere zur Aufrechterhaltung deiner Anmeldesitzung und zur Speicherung von Einstellungen wie dem Dunkelmodus.\n\nDiese Technologien sind für den Betrieb des Dienstes erforderlich; Rechtsgrundlage ist § 25 Abs. 2 Nr. 2 TDDDG in Verbindung mit Art. 6 Abs. 1 lit. f DSGVO. Eine Einwilligung ist hierfür nicht erforderlich.\n\nEine Nutzung von Cookies zu Werbe- oder Trackingzwecken durch Dritte findet nicht statt.'},
       {h:'10. Speicherdauer',p:'Bestands-, Lern- und Nutzungsdaten werden für die Dauer des Bestehens deines Nutzerkontos gespeichert.\n\nNach Löschung des Kontos werden die zugehörigen Daten unverzüglich gelöscht, soweit keine gesetzlichen Aufbewahrungspflichten, etwa aus Handels- oder Steuerrecht, entgegenstehen. In diesem Fall werden die betroffenen Daten für die weitere Verarbeitung gesperrt.'},
@@ -2409,10 +2561,41 @@ function buildProfileModal(){
       premBox.appendChild(upBtn2);
     }
     box.appendChild(premBox);
+
+    if(isPremU){
+      var subActions=document.createElement('div');subActions.style.cssText='margin-bottom:18px';
+      var mkAct=function(label,style,fn){
+        var b=document.createElement('button');
+        b.style.cssText='width:100%;padding:11px 14px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;text-align:left;border:1px solid '+(S.dark?'#334155':'#e2e8f0')+';background:'+(S.dark?'#1e293b':'#fff')+';color:'+style;
+        b.textContent=label;b.onclick=fn;return b;
+      };
+      subActions.appendChild(mkAct('🔄  Plan ändern',(S.dark?'#e2e8f0':'#0f172a'),function(){S.profileModal=false;S.premModal=true;render();}));
+      subActions.appendChild(mkAct('💳  Zahlungsmethode hinzufügen',(S.dark?'#e2e8f0':'#0f172a'),function(){openPaymentModal();}));
+      subActions.appendChild(mkAct('✕  Abo kündigen','#dc2626',function(){openCancelSubModal();}));
+      box.appendChild(subActions);
+    }
+
     var lbl=document.createElement('label');lbl.style.cssText='font-size:13px;font-weight:600;display:block;margin-bottom:6px';lbl.textContent='Bundesland';box.appendChild(lbl);
     var sel=document.createElement('select');sel.className='wide-inp';BL_NAMES.forEach(function(bl){var opt=document.createElement('option');opt.value=bl;opt.textContent=bl;if(S.user&&S.user.bundesland===bl)opt.selected=true;sel.appendChild(opt);});box.appendChild(sel);
     var sv=document.createElement('button');sv.className='btn-blue';sv.style.cssText='width:100%;margin-top:12px';sv.textContent='Speichern';sv.onclick=function(){if(S.user)S.user.bundesland=sel.value;saveProfileNow();S.profileModal=false;render();};box.appendChild(sv);
     var lo=document.createElement('button');lo.className='btn-gray';lo.style.cssText='width:100%;margin-top:8px';lo.textContent='🚪 Abmelden';lo.onclick=async function(){if(profileSyncTimer){clearTimeout(profileSyncTimer);profileSyncTimer=null;}if(sb)await sb.auth.signOut();S.user=null;profileLoaded=false;S.profileModal=false;go('landing');};box.appendChild(lo);
+
+    var legalRow=document.createElement('div');legalRow.style.cssText='margin-top:16px;padding-top:14px;border-top:1px solid '+(S.dark?'#334155':'#e2e8f0')+';display:flex;gap:14px;font-size:12px';
+    var l1=document.createElement('a');l1.href='#';l1.style.cssText='color:#1d4ed8;text-decoration:underline;cursor:pointer';l1.textContent='AGB';l1.onclick=function(e){e.preventDefault();openLegalModal('agb');};
+    var l2=document.createElement('a');l2.href='#';l2.style.cssText='color:#1d4ed8;text-decoration:underline;cursor:pointer';l2.textContent='Datenschutzerklärung';l2.onclick=function(e){e.preventDefault();openLegalModal('datenschutz');};
+    legalRow.appendChild(l1);legalRow.appendChild(l2);box.appendChild(legalRow);
+
+    var dangerZone=document.createElement('div');
+    dangerZone.style.cssText='margin-top:18px;padding-top:14px;border-top:1px solid '+(S.dark?'#334155':'#e2e8f0');
+    var dzTitle=document.createElement('div');dzTitle.style.cssText='font-size:12px;font-weight:800;color:#dc2626;margin-bottom:6px';dzTitle.textContent='Konto löschen';
+    var dzInfo=document.createElement('div');dzInfo.style.cssText='font-size:11.5px;color:'+(S.dark?'#94a3b8':'#64748b')+';line-height:1.55;margin-bottom:10px';
+    dzInfo.textContent='Löscht dein Konto und alle dazugehörigen Daten – Profil, Noten, Lernfortschritt und lokal gespeicherte Daten. Dieser Schritt kann nicht rückgängig gemacht werden.';
+    var delBtn=document.createElement('button');
+    delBtn.style.cssText='width:100%;padding:11px;border-radius:10px;border:1px solid #dc2626;background:transparent;color:#dc2626;font-size:13px;font-weight:700;cursor:pointer';
+    delBtn.textContent='🗑️  Konto und alle Daten löschen';
+    delBtn.onclick=function(){openDeleteAccountModal();};
+    dangerZone.appendChild(dzTitle);dangerZone.appendChild(dzInfo);dangerZone.appendChild(delBtn);
+    box.appendChild(dangerZone);
   } else {
     var sg=document.createElement('div');sg.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px';
     [['Streak',S.streak+' Tage'],['XP',S.xp.toLocaleString('de-DE')],['Themen',''+S.topicsLearned.length],['Karten',''+FLASHCARDS.length]].forEach(function(x){sg.innerHTML+='<div class="card" style="padding:13px;text-align:center"><div style="font-weight:800;font-size:18px">'+x[1]+'</div><div style="font-size:11px;color:#94a3b8">'+x[0]+'</div></div>';});
@@ -2430,19 +2613,21 @@ function buildPremModal(){
   ['Unbegrenzte AFB-Aufgaben (statt 15/Tag)','Probe-Klausuren: Original-Abitur-KA & Klausuren nach Thema','Korrekter Abi-Rechner für alle 16 Bundesländer','Unbegrenzte KI-Tutor-Gespräche & KI-Lernpläne','Vollständige Lerneinheiten in allen Fächern','Keine Werbung'].forEach(function(f){featBox.innerHTML+='<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:8px"><span style="color:#16a34a;font-weight:800;flex-shrink:0">✓</span><span style="font-size:13px;line-height:1.4">'+f+'</span></div>';});
   box.appendChild(featBox);
 
-  var plans=document.createElement('div');plans.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px';
+  var plans=document.createElement('div');plans.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px';
   var annualSel=S.premSelectedPlan==='annual';
-  var annual=mk('<div style="position:relative;border:2px solid '+(annualSel?'#1d4ed8':'#e2e8f0')+';background:'+(annualSel?'#eff6ff':'transparent')+';border-radius:14px;padding:16px 10px 12px;cursor:pointer;text-align:center"><div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;font-size:9px;font-weight:800;padding:3px 10px;border-radius:100px;white-space:nowrap">BESTES ANGEBOT</div><div style="font-weight:900;font-size:24px;margin-top:6px">30€</div><div style="font-size:11px;color:#64748b">pro Jahr</div><div style="font-size:11px;color:#16a34a;font-weight:700;margin-top:2px">≈ 2,50€/Monat</div></div>');
+  var annual=mk('<div style="position:relative;border:2px solid '+(annualSel?'#1d4ed8':'#e2e8f0')+';background:'+(annualSel?'#eff6ff':'transparent')+';border-radius:14px;padding:16px 10px 12px;cursor:pointer;text-align:center"><div style="position:absolute;top:-9px;left:50%;transform:translateX(-50%);background:#1d4ed8;color:#fff;font-size:9px;font-weight:800;padding:3px 10px;border-radius:100px;white-space:nowrap">17% GÜNSTIGER</div><div style="font-weight:900;font-size:24px;margin-top:6px">30€</div><div style="font-size:11px;color:#64748b">pro Jahr</div><div style="font-size:11px;color:#16a34a;font-weight:700;margin-top:2px">2,50€/Monat</div></div>');
   var monthlySel=S.premSelectedPlan==='monthly';
-  var monthly=mk('<div style="border:2px solid '+(monthlySel?'#1d4ed8':'#e2e8f0')+';background:'+(monthlySel?'#eff6ff':'transparent')+';border-radius:14px;padding:16px 10px 12px;cursor:pointer;text-align:center"><div style="font-weight:900;font-size:24px;margin-top:15px">3€</div><div style="font-size:11px;color:#64748b">pro Monat</div><div style="font-size:11px;color:transparent;margin-top:2px">·</div></div>');
+  var monthly=mk('<div style="border:2px solid '+(monthlySel?'#1d4ed8':'#e2e8f0')+';background:'+(monthlySel?'#eff6ff':'transparent')+';border-radius:14px;padding:16px 10px 12px;cursor:pointer;text-align:center"><div style="font-weight:900;font-size:24px;margin-top:15px">3€</div><div style="font-size:11px;color:#64748b">pro Monat</div><div style="font-size:11px;color:#64748b;font-weight:700;margin-top:2px">36€/Jahr</div></div>');
   annual.onclick=function(){S.premSelectedPlan='annual';render();};
   monthly.onclick=function(){S.premSelectedPlan='monthly';render();};
   plans.appendChild(annual);plans.appendChild(monthly);box.appendChild(plans);
 
+  box.appendChild(mk('<div style="font-size:11px;color:#64748b;line-height:1.55;margin-bottom:14px;padding:10px 12px;background:#f8fafc;border-radius:10px;border:1px solid #e2e8f0">Das Abo verlängert sich automatisch um die gewählte Laufzeit und ist jederzeit zum Ende des laufenden Zeitraums kündbar – mit einem Klick unter Einstellungen, ohne Angabe von Gründen. Preise inkl. USt. Als Verbraucher/in hast du ein 14-tägiges Widerrufsrecht.</div>'));
+
   var b1=document.createElement('button');b1.className='btn-blue';b1.style.cssText='width:100%;margin-bottom:8px';
   b1.textContent=annualSel?'Jahresplan starten – 30€/Jahr':'Monatsplan starten – 3€/Monat';
-  b1.onclick=function(){ if(S.user){ S.user.premium=true; S.user.premiumPlan=S.premSelectedPlan; } S.premModal=false; render(); };
-  var cl=document.createElement('button');cl.style.cssText='display:block;margin:0 auto;background:none;border:none;color:#94a3b8;cursor:pointer;font-size:13px';cl.textContent='Nein danke';cl.onclick=function(){S.premModal=false;render();};
+  b1.onclick=function(){ if(S.user){ S.user.premium=true; S.user.premiumPlan=S.premSelectedPlan; S.user.premiumSince=new Date().toISOString(); saveProfileNow(); } S.premModal=false; render(); };
+  var cl=document.createElement('button');cl.className='btn-gray';cl.style.cssText='width:100%';cl.textContent='Später entscheiden';cl.onclick=function(){S.premModal=false;render();};
   box.appendChild(b1);box.appendChild(cl);
   overlay.appendChild(box);overlay.onclick=function(e){if(e.target===overlay){S.premModal=false;render();}};return overlay;
 }
